@@ -20,7 +20,7 @@
 ## pointer is over a bar.
 
 import
-  std/[posix, unicode, strutils, tables, os]
+  std/[posix, unicode, strutils, tables, os, math]
 
 import
   point,
@@ -986,15 +986,29 @@ proc renderStringRightAligned(
 
   # Find the "Full block" symbol's height and position. This helps line up
   # other symbols commonly used for block style statusbars.
-  var blockTop, blockHeight = 0
+  # The block is snapped outwards to whole physical pixels: at fractional
+  # scales rounding it in logical units can leave the top or bottom pixel row
+  # of a segment unpainted next to the block glyphs drawn by the font.
+  var blockTop, blockHeight = 0.0
   block findBlock:
     let layout = this.newLayout("█", this.allFonts)
-    var ink, logical: PangoRectangle
-    pango_layout_get_pixel_extents(layout, addr ink, addr logical)
+    var
+      ink, logical: PangoRectangle
+      pixelW, logicalH: cint
+    pango_layout_get_extents(layout, addr ink, addr logical)
+    pango_layout_get_pixel_size(layout, addr pixelW, addr logicalH)
     g_object_unref(layout)
     if ink.height > 0:
-      blockTop = (this.wanted.height - logical.height) div 2 + ink.y
-      blockHeight = ink.height
+      let
+        # Same vertical position as drawText uses.
+        textTop = ((this.wanted.height - logicalH) div 2).float
+        top = textTop + ink.y.float / PANGO_SCALE
+        bottom = top + ink.height.float / PANGO_SCALE
+        sy = if this.wanted.height > 0: this.bufH.float / this.wanted.height.float else: 1.0
+        snappedTop = max(0.0, floor(top * sy) / sy)
+        snappedBottom = min(this.wanted.height.float, ceil(bottom * sy) / sy)
+      blockTop = snappedTop
+      blockHeight = snappedBottom - snappedTop
 
   result = x - stringWidth
   var
@@ -1009,10 +1023,15 @@ proc renderStringRightAligned(
       reset characters
       continue
     if run.bg != -1:
-      if blockHeight == 0:
+      if blockHeight <= 0:
         this.fillRect(toColor(run.bg), xLoc, 0, run.info.width, this.wanted.height, true)
       else:
-        this.fillRect(toColor(run.bg), xLoc, blockTop, run.info.width, blockHeight, true)
+        let c = toColor(run.bg)
+        cairo_set_operator(this.cr, CAIRO_OPERATOR_SOURCE)
+        cairo_set_source_rgba(this.cr, c.r, c.g, c.b, c.a)
+        cairo_rectangle(this.cr, xLoc.cdouble, blockTop, run.info.width.cdouble, blockHeight)
+        cairo_fill(this.cr)
+        cairo_set_operator(this.cr, CAIRO_OPERATOR_OVER)
     this.drawText(
       run.text,
       this.fontFor(run.font),

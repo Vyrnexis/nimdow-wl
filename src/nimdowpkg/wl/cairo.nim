@@ -75,6 +75,8 @@ proc pango_layout_set_ellipsize*(l: PangoLayout, mode: cint) {.importc, cdecl.}
 proc pango_layout_get_pixel_size*(l: PangoLayout, width, height: ptr cint) {.importc, cdecl.}
 proc pango_layout_get_pixel_extents*(l: PangoLayout,
     ink, logical: ptr PangoRectangle) {.importc, cdecl.}
+proc pango_layout_get_extents*(l: PangoLayout,
+    ink, logical: ptr PangoRectangle) {.importc, cdecl.}
 proc pango_layout_index_to_pos*(l: PangoLayout, index: cint,
     pos: ptr PangoRectangle) {.importc, cdecl.}
 proc pango_font_description_from_string*(s: cstring): PangoFontDescription {.importc, cdecl.}

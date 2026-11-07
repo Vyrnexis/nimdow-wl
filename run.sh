@@ -1,22 +1,12 @@
 #!/usr/bin/env bash
+# Dev script: build nimdow and run it nested in River inside the current
+# Wayland session (a window on your desktop).
+set -e
+cd "$(dirname "$0")"
+export PATH="$HOME/.nimble/bin:$PATH"
 
-config="${XDG_CONFIG_HOME}/nimdow/config.toml"
-if [ ! -f "$config" ]; then
-  mkdir -p "${XDG_CONFIG_HOME}/nimdow"
-  ln -s "$(pwd)/config.default.toml" "$config"
-  printf "Created symlink to %s\n" "$config"
-fi
+nimble debug
 
-nimble debug || exit 1
-
-# See xserver bug: https://gitlab.freedesktop.org/xorg/xserver/-/issues/1289
-unset XDG_SEAT
-
-Xephyr -br -ac -reset -screen 1920x1080 :1 &
-sleep 1s
-export DISPLAY=:1
-xrdb "$HOME/.Xresources" &
-./bin/nimdow --config "./config.default.toml" &
-
-# nm-applet &
-~/.fehbg &
+# Keep the nested instance away from the real systemd user session.
+export NIMDOW_NO_SESSION=1
+exec river -c "./bin/nimdow --config ./config.default.toml"

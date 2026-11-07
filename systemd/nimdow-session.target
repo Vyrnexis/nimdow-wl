@@ -1,0 +1,7 @@
+[Unit]
+Description=nimdow session (pulls in graphical-session and XDG autostart)
+Documentation=man:systemd.special(7)
+BindsTo=graphical-session.target
+Wants=graphical-session-pre.target xdg-desktop-autostart.target
+After=graphical-session-pre.target
+Before=xdg-desktop-autostart.target

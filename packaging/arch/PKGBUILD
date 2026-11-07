@@ -49,6 +49,10 @@ package() {
   install -Dm644 config.default.toml "$pkgdir/usr/share/nimdow/config.default.toml"
   install -Dm644 wayland-sessions/nimdow.desktop \
     "$pkgdir/usr/share/wayland-sessions/nimdow.desktop"
+  install -Dm644 systemd/nimdow-session.target \
+    "$pkgdir/usr/lib/systemd/user/nimdow-session.target"
+  install -Dm644 systemd/nimdow-portals.conf \
+    "$pkgdir/usr/share/xdg-desktop-portal/nimdow-portals.conf"
   install -Dm644 doc/nimdow.1 "$pkgdir/usr/share/man/man1/nimdow.1"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

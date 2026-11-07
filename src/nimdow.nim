@@ -17,6 +17,7 @@ import
   nimdowpkg/ipc/ipc,
   nimdowpkg/wmcommands,
   nimdowpkg/spawn,
+  nimdowpkg/session,
   nimdowpkg/logger
 
 proc handleCommand(str: string, windowmanager: WindowManager) =
@@ -75,11 +76,15 @@ when isMainModule:
 
   addExitProc(proc() =
     discard tryRemoveFile(ipc.socketLoc)
+    stopSession()
   )
 
   logger.enabled = loadedConfig.loggingEnabled
 
   log "Starting Nimdow " & version
+
+  # Export the display to systemd/D-Bus and start XDG autostart.
+  startSession()
 
   nimdow.startTray()
 

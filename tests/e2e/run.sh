@@ -161,6 +161,8 @@ ONLY="${E2E_ONLY:-}"
 # River sets a relative WAYLAND_DISPLAY; nimdow gets a private runtime dir for its IPC socket.
 export WAYLAND_DISPLAY="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
 export XDG_RUNTIME_DIR="$E2E_RT"
+# Never touch the real systemd user session (env export, autostart target).
+export NIMDOW_NO_SESSION=1
 
 NIMDOW="$ROOT/bin/nimdow"
 INPUT="$ROOT/bin/nimdowinput"

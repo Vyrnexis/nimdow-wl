@@ -1,7 +1,8 @@
 # App Rules
 # Example:
 # [[appRule]]
-# class = "foot"   # matched against the window's app_id
+# class = "foot"   # class and instance are both matched against the window's app_id
+# instance = "foot"
 # title = "foot"
 # monitor = 1
 # tags = [ 1, 4, 7 ]

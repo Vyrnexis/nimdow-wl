@@ -1,223 +1,189 @@
-# nimdow
+# nimdow-wayland
 
-A window manager written in [Nim](https://nim-lang.org/)
+nimdow-wayland is a tiling window manager for Wayland. It runs as a window-manager client of the
+[River](https://codeberg.org/river/river) compositor (0.5 or newer) through the `river-window-management-v1`
+protocol: River handles rendering and input, nimdow decides where windows go. The binary, the config directory
+(`~/.config/nimdow/`) and the session name all remain `nimdow`.
 
-**NOTE: Nimdow is in Beta but is very usable. Please report any bugs you may find.**
+This is a Wayland port of [nimdow](https://github.com/avahe-kellenberger/nimdow) by avahe-kellenberger,
+written in [Nim](https://nim-lang.org/). X11 is no longer supported. Licensed under the GPL-2.0 (see `LICENSE`).
 
-I am using this project to learn Nim, x11, and to replace my build of **dwm** (written in C).
+## Features
 
-**Discord community:** https://discord.gg/vPCumzeqqa
+- dwm-style tiling: master/stack layout with adjustable master count and width, tags (workspaces), floating and
+  fullscreen windows, a scratchpad, multiple monitors, and app rules (tags, monitor, floating/fullscreen state).
+- Built-in status bar: tags on the left, the focused window's title in the center, status text on the right.
+  Set the text with `nimdow --status "text"`.
+- System tray using the StatusNotifierItem protocol, with dbusmenu context menus and tooltips.
+- Layer-shell support: launchers, notification daemons, wallpapers and other bars work, and their exclusive zones
+  shrink the tiled area. The bar is rendered at the output's (fractional) scale.
+- systemd user session integration: on startup nimdow exports the display environment to D-Bus and the systemd
+  user manager and starts `nimdow-session.target`, which binds `graphical-session.target` and pulls in
+  `xdg-desktop-autostart.target`, so `~/.config/autostart` entries run. The target is stopped when nimdow exits.
+- TOML configuration with a reload key binding, plus a command line client for the window manager controls.
 
-[See the progress of development in the local Kanban Board](https://github.com/avahe-kellenberger/nimdow/projects/1?fullscreen=true)
+## Requirements
 
-# Table of Contents
-
-1. [Screenshots](#screenshots)
-2. [Installation](#installation)
-    1. [Building from source](#building)
-    2. [Arch Linux (AUR)](#aur)
-3. [Config File](#config)
-4. [Wayland / River](#wayland)
-5. [Command Line Arguments](#cli)
-6. [Command Line Client](#cli-client)
-7. [Status Bar](#statusbar)
-8. [Issues with Java Applications](#issues-with-java-applications)
-9. [Roadmap](#roadmap)
-10. [Testing Locally](#testing)
-
-## Screenshots
-
-![](https://user-images.githubusercontent.com/34498340/187017440-95f191ae-5701-45ce-9481-9c1f5fd450dc.png)
-![](https://user-images.githubusercontent.com/34498340/132368685-570a2629-f948-4f24-9ab8-00804824a497.png)
-![](https://user-images.githubusercontent.com/34498340/84605679-209c3d80-ae6d-11ea-8823-09b2c8626b55.png)
+- `river` >= 0.5
+- Runtime libraries: `wayland`, `libxkbcommon`, `cairo`, `pango`, `librsvg`, `systemd-libs`, `glib2`,
+  `harfbuzz`, `gdk-pixbuf2`
+- Build: `nim`, `pkgconf`, `git`, and the `parsetoml` nimble package (`nimble` fetches it)
+- Optional: `xdg-desktop-portal-gtk` (portals), `mako` (notifications)
 
 ## Installation
 
-### Building from source <a name="building"></a>
+### Arch Linux
 
-1. Ensure you have `nim` (version 1.2.0 or higher) and `nimble` installed. My preferred method is to use `choosenim` to install these.
-2. Clone this repo
-3. Execute `nimble install` from the package directory to install dependencies
-4. Execute `nimble release` from the package directory to create a release build (The built binary will be in `./bin/nimdow`)
-5. Copy the default config (`config.default.toml`) to `${XDG_CONFIG_HOME}/nimdow/config.toml`, OR to `${HOME}/.config/nimdow/config.toml`.
+```sh
+cd packaging/arch
+makepkg -si
+```
 
-### AUR
+This builds and installs `nimdow-wayland-git` (it conflicts with `nimdow`, `nimdow-bin` and `nimdow-git`).
+The default config ends up in `/usr/share/nimdow/config.default.toml`.
 
-If you are on an Arch Linux based system, use `nimdow-bin` in the AUR to install a pre-built binary.
+### From source
 
-Default config is stored at `/usr/share/nimdow/config.default.toml`
+```sh
+nimble install -d     # dependencies
+nimble release        # runs ./build.sh, writes ./bin/nimdow
+```
 
-## Nixos
+Then install the files, as `packaging/arch/PKGBUILD` does:
 
-If you are on Nixos, you can set `services.xserver.windowManager.nimdow.enable=true;` to install and
-enable nimdow in your login manager. (in `nixos-unstable` or in stable from 2023-05 release).
+| File | Destination |
+| --- | --- |
+| `bin/nimdow` | `/usr/bin/nimdow` |
+| `config.default.toml` | `/usr/share/nimdow/config.default.toml` |
+| `wayland-sessions/nimdow.desktop` | `/usr/share/wayland-sessions/nimdow.desktop` |
+| `systemd/nimdow-session.target` | `/usr/lib/systemd/user/nimdow-session.target` |
+| `systemd/nimdow-portals.conf` | `/usr/share/xdg-desktop-portal/nimdow-portals.conf` |
+| `doc/nimdow.1` | `/usr/share/man/man1/nimdow.1` |
 
-## Config File <a name="config"></a>
+## Running
 
-Nimdow searches for a config file in 3 locations in this order:
+River is the compositor and nimdow is its window manager; River needs a window manager to be useful, and
+`river -c nimdow` starts River with nimdow as that client.
+
+- Login manager: pick **nimdow** (`nimdow.desktop`, which runs `river -c nimdow`). The separate **River** entry
+  is River without a window manager and not what you want here.
+- From a TTY: `river -c nimdow`.
+
+Exiting: the `exitSession` control (default Ctrl+Alt+Delete) exits River and nimdow. Killing nimdow alone leaves
+River running.
+
+## Configuration
+
+nimdow searches for a config file in this order:
 
 1. `${XDG_CONFIG_HOME}/nimdow/config.toml`
 2. `${HOME}/.config/nimdow/config.toml`
 3. `/usr/share/nimdow/config.default.toml`
 
-If no config file is found, Nimdow will not launch.
+If none is found, nimdow does not start. Start from the default:
 
-**See [the wiki](https://github.com/avahe-kellenberger/nimdow/wiki/User-Configuration-File) for information about the specifics of the config file.**
+```sh
+mkdir -p ~/.config/nimdow
+cp /usr/share/nimdow/config.default.toml ~/.config/nimdow/config.toml
+```
 
-## Wayland / River <a name="wayland"></a>
+`config.default.toml` documents every setting. The default modifier is Super; reload the config with
+Super+Shift+R. The [upstream wiki](https://github.com/avahe-kellenberger/nimdow/wiki/User-Configuration-File)
+describes the config format in more detail (the X11-specific parts do not apply). Use
+`nimdow --config ./other.toml` to start with another file.
 
-This branch is a [River](https://codeberg.org/river/river) (0.5 or newer) window manager client
-using `river-window-management-v1`. X11 is no longer supported.
+### Status bar text
 
-- Build dependencies: `wayland`, `xkbcommon`, `cairo`, `pango`, `librsvg`, `libsystemd`, `river >= 0.5` (plus
-  `nim` and the `parsetoml` nimble package).
-- Installing on Arch Linux: `cd packaging/arch && makepkg -si` builds and installs `nimdow-wayland-git` (it
-  fetches the `wayland` branch and a pinned parsetoml, no nimble needed). Elsewhere: `nimble install -d`,
-  `nimble release`, then copy `bin/nimdow` to `/usr/bin`, `config.default.toml` to
-  `/usr/share/nimdow/` (or `~/.config/nimdow/config.toml`) and `wayland-sessions/nimdow.desktop` to
-  `/usr/share/wayland-sessions/`.
-- Run with `river -c nimdow`. For a login manager, install `wayland-sessions/nimdow.desktop`
-  to `/usr/share/wayland-sessions/`.
-- The status text is set with `nimdow --status "text"`, for example:
-  `while true; do nimdow --status "$(date +%H:%M)"; sleep 30; done`
-- Layer shell clients (launchers, notifications, wallpapers, other bars such as noctalia) are supported;
-  their exclusive zones shrink the tiled area and nimdow's own bar is placed below them.
-- The bar is rendered at the output's (fractional) scale.
-- `barTagPadding` (default `8`) sets the space on each side of a tag label; raise it for icon tags
-  (e.g. Nerd Font glyphs in `displayString`).
+nimdow has no built-in clock or system info; a script sets the text:
 
-- Floating windows (rules, scratchpad, dialogs) are placed and clamped inside the usable area, i.e. the
-  output minus layer shell exclusive zones and nimdow's bar.
-- App rules are evaluated when a window is first placed; a window that has no `app_id` (or no title, if a rule
-  matches on titles) yet is held back for one manage sequence. If a title-based rule did not match and the
-  title arrives (or changes) within 500ms of the placement, the rules are evaluated again and apply the tags and
-  floating/fullscreen state (but never the monitor). `maximize_requested` is ignored.
-- Some clients ignore the size they are offered when they open floating. Alacritty (winit) is one: a
-  floating rule's `width`/`height` is sent, but alacritty opens at its own default size.
+```sh
+while true; do nimdow --status "$(date +%H:%M)"; sleep 30; done
+```
 
-Differences from the X11 version: no system tray, no urgency hints, and app rules match the
-window's `app_id` (`class` and `instance` both match it).
+Put that loop in `[autostart] exec` in the config (or in a script you start from there).
 
-## Command Line Arguments <a name="cli"></a>
+### Other programs
 
-- Providing an alternative config file, e.g. `nimdow --config ./some-config.toml`
-- Version information: `nimdow -v` or `nimdow --version`
-- Setting the bar's status text of the running instance: `nimdow --status "text"`
-- Debug: `nimdow --dumpState [file]` makes the running instance write its state (monitors, tags, clients with
-  app_id/title/tags/floating/fullscreen/geometry, the focused client, bar visibility) as JSON to `file`
-  (default `$XDG_RUNTIME_DIR/nimdow-state.json`).
+- Launcher: the default config binds Super+P to `fuzzel`; any Wayland launcher (wofi, tofi, ...) works.
+- Terminal: Super+Return starts `alacritty`; change it in the config.
+- Notifications: use [mako](https://github.com/emersion/mako) (or any layer-shell notification daemon).
+- Screenshots: [grim](https://sr.ht/~emersion/grim/) with [slurp](https://github.com/emersion/slurp), e.g.
+  `grim -g "$(slurp)" - | wl-copy`.
 
-## Command Line Client <a name="cli-client"></a>
+## System tray
 
-Nimdow controls can be executed via the cli client.
+Tray icons are shown on the right of the bar and use the StatusNotifierItem D-Bus protocol (XEmbed does not
+exist on Wayland). It needs the D-Bus session bus.
 
-See [the wiki page](https://github.com/avahe-kellenberger/nimdow/wiki/CLI-Client) for a list of commands,
-or read the **man page**.
+- nimdow tries to own `org.kde.StatusNotifierWatcher`. If another program already owns it (waybar, noctalia, ...),
+  nimdow acts as a host only and takes over the name if the other watcher goes away.
+- Left click calls `Activate` (or opens the menu for menu-only items), middle click `SecondaryActivate`,
+  right click opens the item's context menu, scrolling sends `Scroll`. Items with status `Passive` are hidden.
+- Icons come from the item's `IconThemePath`, the icon theme (`trayIconTheme`, else `gtk-icon-theme-name` from
+  the GTK 3/4 `settings.ini`, else Adwaita) and its `Inherits` chain, hicolor and `/usr/share/pixmaps`; otherwise
+  the item's pixmap, otherwise a placeholder letter.
+- Menus (`com.canonical.dbusmenu`) support submenus, check/radio marks, icons and keyboard navigation (Up/Down,
+  Right/Enter/Space, Left, Escape). Hovering an icon shows its tooltip.
+- Settings in `[settings]`: `trayEnabled`, `trayMonitor` (`1` = first monitor, `0` = follow the selected one),
+  `trayIconPadding`, `trayIconSpacing`, `trayIconTheme`, `menuBorderColor`, `menuWidthMin`.
 
-## Status Bar <a name="statusbar"></a>
+## Differences from X11 nimdow
 
-The status bar displays:
-- The available tags on the top left
-- The focused window's title in the center
-- The status (set by the user) on the right
+- No `xsetroot`: the bar status is set with `nimdow --status`. There is no XEmbed tray; use the SNI tray above.
+- App rules match the window's `app_id`: both `class` and `instance` are compared against it.
+- Quitting is the `exitSession` control instead of a `pkill nimdow` key binding.
+- Default programs are Wayland ones (`fuzzel`, `alacritty`) instead of `dmenu_run` and `st`.
+- App rules are evaluated when a window is first placed. A window without an `app_id` (or without a title, if a
+  rule matches on titles) is held back for one manage sequence; if the title arrives or changes within 500 ms,
+  the rules are evaluated again and apply tags and floating/fullscreen state, but never the monitor.
+- Floating windows (rules, scratchpad, dialogs) are placed and clamped inside the usable area (the output minus
+  layer-shell exclusive zones and the bar). Auto-floated windows are centered at their own size.
+- New settings: `barTagPadding` (space on each side of a tag label, default `8`), the tray and menu settings.
+- No urgency hints. The Java window-manager workarounds from the X11 README do not apply.
 
-### System tray <a name="tray"></a>
+## Command line
 
-nimdow shows tray icons on the right of the bar, using the StatusNotifierItem D-Bus protocol (what waybar, KDE
-and noctalia use; XEmbed does not exist on Wayland). It needs the D-Bus session bus and libsystemd (sd-bus);
-SVG icons need librsvg.
+```
+nimdow                         start nimdow (as the River window manager client)
+nimdow -c, --config <file>     use another config file
+nimdow -v, --version           print version information
+nimdow --status "text"         set the status text of the running instance
+nimdow --dumpState [file]      write the running instance's state as JSON
+                               (default $XDG_RUNTIME_DIR/nimdow-state.json)
+```
 
-- nimdow tries to own `org.kde.StatusNotifierWatcher`. If another program already owns it (waybar, noctalia, ...)
-  nimdow acts as a host only: it shows the items registered with that watcher, and takes over the name if the
-  other watcher goes away. It also owns `org.kde.StatusNotifierHost-<pid>`.
-- Left click calls `Activate` (or `ContextMenu` for menu-only items), middle click `SecondaryActivate`, right click
-  `ContextMenu`, scrolling `Scroll` (up: -1, down: 1). Items with status `Passive` are hidden, `NeedsAttention`
-  shows the attention icon.
-- Icons: `IconName` is looked up in the item's `IconThemePath`, the user's icon theme and its `Inherits` chain,
-  hicolor and `/usr/share/pixmaps` (SVG preferred, `a-b-c` falls back to `a-b`); otherwise the `IconPixmap` is
-  used; otherwise a placeholder letter is drawn. The theme is `trayIconTheme`, else `gtk-icon-theme-name` of the
-  GTK 3/4 `settings.ini`, else Adwaita (gsettings/dconf is not queried).
-- Settings (in `[settings]`): `trayEnabled` (default `true`; a config reload starts or stops the tray), `trayMonitor` (default `1`, the
-  first monitor; `0` follows the selected monitor), `trayIconPadding` (default `2`), `trayIconSpacing`
-  (default `4`), `trayIconTheme`.
-- Context menus: right click opens the item's `com.canonical.dbusmenu` (its `Menu` object path) as a popup under
-  the icon, drawn with the bar's font and colors; left click does so for items with `ItemIsMenu`. Items without
-  a `Menu` get `ContextMenu(x, y)` instead. Entries: labels (mnemonics stripped), separators, check/radio marks,
-  icons (`icon-name`), disabled entries, submenus (opened on click, or after hovering the entry for 200ms; an
-  open submenu is kept for 300ms while the pointer crosses other entries on its way to it; shown to the right of
-  their parent or to the left at the screen edge). The menu closes after an activation, with Escape, when clicking elsewhere on the
-  bar, on a window or on the icon again, on a tag change, or when the item disappears. Keyboard: Up/Down (skip
-  separators and disabled entries; holding the key repeats at the seat's `wl_keyboard.repeat_info` rate/delay), Right/Enter/Space (open submenu/activate), Left (close submenu), Escape. The
-  menu takes the keyboard focus (the previous window gets it back when it closes). The menu follows
-  `LayoutUpdated`/`ItemsPropertiesUpdated`. Settings: `menuBorderColor` (default: `barSelectionColor`),
-  `menuWidthMin` (default `150`).
-- Tooltips: hovering an icon for 600ms shows a small popup below it with the item's `ToolTip` title (and the first
-  line of its description; simple HTML markup is stripped), else its `Title`, else its `Id`. It is drawn with the
-  bar's colors and font and `menuBorderColor`, and hides when the pointer leaves, on a click and while a menu is
-  open.
-- Limitation: River sends no event for clicks that hit neither a window nor one of our surfaces (the bare
-  desktop), so an open menu is not dismissed by a click on empty desktop; use Escape, a window, the bar or a tag
-  change.
-- Not implemented yet: scrolling of menus taller than the screen.
+Window manager controls can also be run through the same client, e.g. `nimdow togglefloating` or
+`nimdow gototag 3`. See `man nimdow` and the
+[upstream wiki](https://github.com/avahe-kellenberger/nimdow/wiki/CLI-Client) for the command list.
 
-### Setting the status <a name="setting-status"></a>
+## Development
 
-See the [wiki page](https://github.com/avahe-kellenberger/nimdow/wiki/Setting-the-status) about statuses.
+Nimble tasks:
 
-### Emojis Not showing up / some characters invisible
+- `nimble debug`: debug build to `bin/nimdow`
+- `nimble release`: release build (`build.sh`)
+- `nimble wlgen`: regenerate the Wayland protocol bindings from `protocol/*.xml`
+- `nimble e2e`: build and run the end-to-end tests
+- `nimble lint`: run `nimpretty`
 
-In short, there's a bug in the xft library most distros use.
+`./run.sh` builds a debug binary and runs it in a River window nested in your current Wayland session, using
+`config.default.toml`.
 
-[This fork of xft](https://gitlab.freedesktop.org/xorg/lib/libxft) has a fix for emojis and other font issues.
+`bash tests/e2e/run.sh [-o outdir] [-b] [-s scenario,...]` runs nimdow in a nested River with
+`tests/e2e/config.toml`. It needs `river`, `grim`, `alacritty`, `jq`, `dbus-run-session`, python3 with PyGObject
+and a running Wayland session. Input is injected through the virtual keyboard and pointer protocols by
+`bin/nimdowinput` (built by `-b` or on first use), results are asserted through `nimdow --dumpState`, and the
+nested River runs in a private D-Bus session with `tests/e2e/fake_sni.py` as fake tray items. Screenshots, logs
+and `results.txt` go to the output directory (default `./e2e-out`).
 
-If using an Arch Linux based distro, there is [libxft-bgra-git](https://aur.archlinux.org/packages/libxft-bgra-git/) in the AUR.
+Set `NIMDOW_NO_SESSION=1` to skip the systemd/D-Bus session setup (the nested runs above do this, so they do not
+touch your real user session).
 
-## Issues with Java Applications
+## Known limitations
 
-### The fix
-
-There are multiple fixes, per the [arch wiki](https://wiki.archlinux.org/index.php/Java#Gray_window,_applications_not_resizing_with_WM,_menus_immediately_closing).
-
-Fix #1:
-For jre7-openjdk or jre8-openjdk, append the line `export _JAVA_AWT_WM_NONREPARENTING=1` in `/etc/profile.d/jre.sh`.
-Then, source the file `/etc/profile.d/jre.sh` or log out and log back in.
-
-Fix #2:
-For last version of JDK append line `export AWT_TOOLKIT=MToolkit` in `~/.xinitrc` before `exec nimdow`.
-
-Fix #3:
-Try to use [wmname](https://tools.suckless.org/x/wmname/) with line `wmname compiz` in your `~/.xinitrc`.
-
-Fix #4:
-For Oracle's JRE/JDK, use [SetWMName](https://wiki.haskell.org/Xmonad/Frequently_asked_questions#Using_SetWMName).
-However,
-its effect may be canceled when also using XMonad.Hooks.EwmhDesktops.
-In this case,
-appending `>> setWMName "LG3D"` to the LogHook may help.
-
-### Why is this happening?
-
-The standard Java GUI toolkit has a hard-coded list of "non-reparenting" window managers.
-Nimdow is not (yet) included in this list.
-
-## Roadmap
-
-See the [1.0 release project board](https://github.com/avahe-kellenberger/nimdow/projects/1)
-
-## End-to-end tests (Wayland) <a name="e2e"></a>
-
-`bash tests/e2e/run.sh [-o outdir] [-b] [-s scenario,...]` runs nimdow in a nested River (needs `river`, `grim`,
-`alacritty`, `jq`, `dbus-run-session`, python3 with PyGObject and a running Wayland session) with `tests/e2e/config.toml`. Input (key bindings, typing, pointer
-moves, clicks, super+drag, scrolling) is injected through the virtual keyboard/pointer protocols by
-`bin/nimdowinput` (`tests/e2e/nimdowinput.nim`, built by `-b` or on first use; `nimdowinput key super+shift+1`,
-`type "text"`, `move X Y`, `click left`, `drag super left X1 Y1 X2 Y2`, `scroll up`). Results are asserted
-through `nimdow --dumpState`; the nested River runs in a private D-Bus session (`dbus-run-session`) with
-`tests/e2e/fake_sni.py` as fake tray items/watcher; screenshots, the river/nimdow logs and `results.txt` end up in the output dir
-(default `./e2e-out`).
-
-## Testing locally (for development) <a name="testing"></a>
-
-0. Create a copy or symlink of the config file in `$XDG_CONFIG_HOME/nimdow/config.toml`
-1. Start up Xephyr: `Xephyr -ac -screen 1920x1080 -br -reset -terminate 2> /dev/null :1 &`
-2. Execute nimdow on the new display: `DISPLAY=:1 ./nimdow`
-
+- Some clients ignore the size they are offered when they open floating. Alacritty (winit) is one: a floating
+  rule's `width`/`height` is sent, but it opens at its own default size.
+- `maximize_requested` is ignored.
+- River sends no event for clicks that hit neither a window nor one of nimdow's surfaces (the bare desktop), so
+  an open tray menu is not dismissed by such a click; use Escape, a window, the bar or a tag change.
+- Tray menus taller than the screen are not scrollable.

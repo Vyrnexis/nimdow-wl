@@ -1,4 +1,3 @@
----
 name: Tests
 on:
   pull_request:
@@ -8,10 +7,20 @@ on:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    container: archlinux:latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: jiro4989/setup-nim-action@v1
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-      - run: nimble build -Y
-      - run: nimtest
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git nim nimble wayland libxkbcommon \
+            cairo pango librsvg systemd-libs glib2 harfbuzz gdk-pixbuf2 pkgconf gcc
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          nimble install -d -y
+          nimble build -y
+      - name: Unit tests
+        run: |
+          nimble install -y nimtest
+          export PATH="$HOME/.nimble/bin:$PATH"
+          nimtest

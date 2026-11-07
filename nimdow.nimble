@@ -4,8 +4,10 @@ author = "Vyrnexis, avahe-kellenberger (original nimdow)"
 description = "A tiling window manager for the River Wayland compositor, written in Nim"
 license = "GPL v2"
 srcDir = "src"
+binDir = "bin"
 installExt = @["nim"]
 bin = @["nimdow"]
+namedBin["nimdow"] = "nimdow-wl"
 
 # Deps
 requires "nim >= 2.0.0"
@@ -14,7 +16,7 @@ requires "nimtest >= 0.1.0"
 
 # Tasks
 task debug, "Create a debug build":
-  exec "nim -o:bin/nimdow --deepcopy:on --linedir:on --debuginfo c src/nimdow.nim"
+  exec "nim -o:bin/nimdow-wl --deepcopy:on --linedir:on --debuginfo c src/nimdow.nim"
 
 task release, "Build for release":
   exec "./build.sh"

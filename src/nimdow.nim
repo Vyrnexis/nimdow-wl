@@ -81,7 +81,7 @@ when isMainModule:
 
   logger.enabled = loadedConfig.loggingEnabled
 
-  log "Starting Nimdow " & version
+  log "Starting nimdow-wl " & version
 
   # Export the display to systemd/D-Bus and start XDG autostart.
   startSession()

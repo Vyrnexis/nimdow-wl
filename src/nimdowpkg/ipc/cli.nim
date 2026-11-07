@@ -34,16 +34,16 @@ proc handleWMCommand(commandStr: string): bool =
   return success
 
 proc handleSpecialCommand(strArr: seq[string]): bool =
-  ## Returns if Nimdow execution should continue.
+  ## Returns if nimdow-wl execution should continue.
   if strArr.len < 1:
     return true
 
   case strArr[0]:
     of "v", "version":
       if commit.len > 0:
-        echo fmt"Nimdow {version} - Commit {commit}"
+        echo fmt"nimdow-wl {version} - Commit {commit}"
       else:
-        echo fmt"Nimdow {version}"
+        echo fmt"nimdow-wl {version}"
     of "c", "config":
       configloader.configLoc = strArr[1]
       return true
@@ -53,7 +53,7 @@ proc handleSpecialCommand(strArr: seq[string]): bool =
 
 proc handleCommandLineParams*(): bool =
   ## Executes actions based on cli params.
-  ## Returns if Nimdow is intended to be ran normally.
+  ## Returns if nimdow-wl is intended to be ran normally.
   when not declared(commandLineParams):
     return true
 

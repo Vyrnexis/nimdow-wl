@@ -18,7 +18,7 @@ template log*(message: string, level: Level = lvlInfo) =
   if enabled:
     if logger == nil:
       try:
-        logger = newRollingFileLogger(getHomeDir() & ".nimdow.log", fmAppend)
+        logger = newRollingFileLogger(getHomeDir() & ".nimdow-wl.log", fmAppend)
       except:
         let err = getCurrentExceptionMsg()
         echo "Failed to open log file for logging:"

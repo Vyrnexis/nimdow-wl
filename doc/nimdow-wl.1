@@ -1,44 +1,44 @@
-.TH NIMDOW 1
+.TH NIMDOW-WL 1
 .SH NAME
-nimdow \- a dynamic tiling window manager for the River Wayland compositor
+nimdow-wl \- a dynamic tiling window manager for the River Wayland compositor
 .
 .SH SYNOPSIS
-.B river \-c nimdow
+.B river \-c nimdow-wl
 .br
-.B nimdow
+.B nimdow-wl
 .RB [ \-v ]
 .RB [ \-c
 .IR FILE ]
 .br
-.B nimdow
+.B nimdow-wl
 .BI \-\-status " TEXT"
 .br
-.B nimdow
+.B nimdow-wl
 .BR \-\-dumpState " [" \fIFILE\fR ]
 .br
-.B nimdow
+.B nimdow-wl
 .BI \-\-COMMAND " " \fR[\fIARG\fR]
 .
 .SH DESCRIPTION
-.B nimdow
+.B nimdow-wl
 is a dynamic tiling window manager.
 It is a window management client of the River Wayland compositor
 (version 0.5 or later, using the river-window-management-v1 protocol):
-River handles rendering and input devices, nimdow decides how windows are laid out.
+River handles rendering and input devices, nimdow-wl decides how windows are laid out.
 Windows are tiled automatically and organized with tags.
 Layout and focus are controlled with keybindings from the configuration file,
 or via IPC.
-nimdow draws its own status bar and provides a system tray
+nimdow-wl draws its own status bar and provides a system tray
 (StatusNotifierItem, with dbusmenu popups).
 .
 .PP
-.B nimdow
+.B nimdow-wl
 also acts as a cli client,
-which talks to a running nimdow process via a UNIX socket.
+which talks to a running nimdow-wl process via a UNIX socket.
 All window manager controls are available via the IPC and cli client.
 The UNIX socket is created at
-.B $XDG_RUNTIME_DIR/nimdow/ipc-socket.%p
-where %p is the PID of nimdow
+.B $XDG_RUNTIME_DIR/nimdow-wl/ipc-socket.%p
+where %p is the PID of nimdow-wl
 (\fB/tmp\fR is used if XDG_RUNTIME_DIR is not set).
 .
 .PP
@@ -47,27 +47,27 @@ and can be moved/resized with the mouse while holding a modifier key.
 .
 .SH STARTING
 Select the
-.B nimdow
+.B nimdow-wl
 session in your login manager
 (it runs
-.BR "river -c nimdow" ),
+.BR "river -c nimdow-wl" ),
 or start it from a virtual console with
-.BR "river -c nimdow" .
+.BR "river -c nimdow-wl" .
 Running
-.B nimdow
+.B nimdow-wl
 outside of River does not work.
 .
 .PP
-On startup nimdow imports the display environment (WAYLAND_DISPLAY, XDG_CURRENT_DESKTOP, ...)
+On startup nimdow-wl imports the display environment (WAYLAND_DISPLAY, XDG_CURRENT_DESKTOP, ...)
 into the systemd user manager and the D-Bus activation environment,
 and starts
-.BR nimdow-session.target .
+.BR nimdow-wl-session.target .
 That target binds
 .B graphical-session.target
 and pulls in
 .BR xdg-desktop-autostart.target ,
 so XDG autostart entries are run.
-The target is stopped again when nimdow exits.
+The target is stopped again when nimdow-wl exits.
 Set
 .B NIMDOW_NO_SESSION=1
 to skip all of this, for example when running nested or in tests.
@@ -80,7 +80,7 @@ to skip all of this, for example when running nested or in tests.
 Prints the version information.
 .TP
 .BI \-c " FILE" "\fR, \fB\-\-config=\fIFILE\fR"
-Starts nimdow with the given config file.
+Starts nimdow-wl with the given config file.
 .
 .SS "Special IPC Commands"
 .TP
@@ -93,7 +93,7 @@ Makes the running instance write its state (monitors, tags, windows, bar, menus)
 Meant for debugging, bug reports and tests.
 .TP
 .BR \-\-exitSession
-Exits nimdow (River exits with it).
+Exits nimdow-wl (River exits with it).
 .
 .SS "IPC Commands"
 .
@@ -222,24 +222,24 @@ Hides or shows the status bar on the selected monitor.
 .
 .SH FILES
 .TP
-.B $XDG_CONFIG_HOME/nimdow/config.toml
-The configuration file (\fB~/.config/nimdow/config.toml\fR by default).
+.B $XDG_CONFIG_HOME/nimdow-wl/config.toml
+The configuration file (\fB~/.config/nimdow-wl/config.toml\fR by default).
 If it does not exist,
-.B /usr/share/nimdow/config.default.toml
+.B /usr/share/nimdow-wl/config.default.toml
 is used.
 .TP
-.B $XDG_RUNTIME_DIR/nimdow/ipc-socket.PID
+.B $XDG_RUNTIME_DIR/nimdow-wl/ipc-socket.PID
 The IPC socket.
 .TP
-.B /usr/lib/systemd/user/nimdow-session.target
+.B /usr/lib/systemd/user/nimdow-wl-session.target
 The systemd user target started with the session.
 .
 .SH ENVIRONMENT
 .TP
 .B NIMDOW_NO_SESSION
-If set to a non-empty value, nimdow does not touch the systemd user session
+If set to a non-empty value, nimdow-wl does not touch the systemd user session
 (no environment import, no
-.BR nimdow-session.target ).
+.BR nimdow-wl-session.target ).
 .TP
 .B XDG_RUNTIME_DIR
 Directory of the IPC socket.

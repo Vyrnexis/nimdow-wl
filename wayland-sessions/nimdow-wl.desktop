@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=nimdow-wl
+Comment=nimdow-wl window manager (River)
+Exec=river -c nimdow-wl
+Type=Application
+DesktopNames=nimdow-wl

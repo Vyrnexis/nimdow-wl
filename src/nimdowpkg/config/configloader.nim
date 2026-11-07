@@ -18,9 +18,9 @@ var configLoc*: string
 
 proc findConfigPath*(): string =
   let configHome = getConfigDir()
-  result = configHome & "nimdow/config.toml"
+  result = configHome & "nimdow-wl/config.toml"
   if not fileExists(result):
-    result = "/usr/share/nimdow/config.default.toml"
+    result = "/usr/share/nimdow-wl/config.default.toml"
   if not fileExists(result):
     log "config file " & result & " does not exist", lvlError
     result = ""

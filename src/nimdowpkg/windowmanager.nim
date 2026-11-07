@@ -223,7 +223,7 @@ proc startTray*(this: WindowManager) =
   this.tray = newTray(this.config.trayIconTheme, proc() = this.markDirty())
 
 proc setStatus*(this: WindowManager, status: string) =
-  ## Sets the text shown on the right of the status bars (`nimdow --status`).
+  ## Sets the text shown on the right of the status bars (`nimdow-wl --status`).
   ## The caller must `markDirty` so the bars are redrawn.
   this.status = status
   this.applyStatus()
@@ -477,8 +477,8 @@ proc clientJson(this: WindowManager, client: Client, focused: Client): JsonNode 
   }
 
 proc dumpState*(this: WindowManager, path: string) =
-  ## Debug/test aid (`nimdow --dumpState [file]`): writes the window manager
-  ## state as JSON to `path` (default `$XDG_RUNTIME_DIR/nimdow-state.json`).
+  ## Debug/test aid (`nimdow-wl --dumpState [file]`): writes the window manager
+  ## state as JSON to `path` (default `$XDG_RUNTIME_DIR/nimdow-wl-state.json`).
   ## The file is written atomically.
   var focused: Client
   if this.selectedMonitor != nil:
@@ -531,7 +531,7 @@ proc dumpState*(this: WindowManager, path: string) =
   }
   let target =
     if path.len > 0: path
-    else: getEnv("XDG_RUNTIME_DIR", "/tmp") / "nimdow-state.json"
+    else: getEnv("XDG_RUNTIME_DIR", "/tmp") / "nimdow-wl-state.json"
   try:
     let tmp = target & ".tmp"
     writeFile(tmp, $state)

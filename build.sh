@@ -11,5 +11,5 @@ if ! git diff-index --quiet HEAD; then
 fi
 
 echo "--- Building with latest commit: $commit ---"
-LATEST_COMMIT="$commit" nim c -o:bin/nimdow -d:release --deepcopy:on src/nimdow.nim
+LATEST_COMMIT="$commit" nim c -o:bin/nimdow-wl -d:release --deepcopy:on src/nimdow.nim
 

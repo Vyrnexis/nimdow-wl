@@ -30,13 +30,13 @@ modifiers = [ "super" ]
 # command = "notify-send \"Id: %1, rx: %2, cx: %4, cy: %5, w: %6, b: %7\""
 # clickRegion = 0
 
-# The status text on the bar is set with `nimdow --status "text"`, e.g. from a script:
-#   while true; do nimdow --status "$(date +%H:%M)"; sleep 30; done
+# The status text on the bar is set with `nimdow-wl --status "text"`, e.g. from a script:
+#   while true; do nimdow-wl --status "$(date +%H:%M)"; sleep 30; done
 [autostart]
 exec = [
   #"firefox",
   #"alacritty",
-  #"while true; do nimdow --status \"$(date +%H:%M)\"; sleep 30; done",
+  #"while true; do nimdow-wl --status \"$(date +%H:%M)\"; sleep 30; done",
 ]
 
 [settings]
@@ -200,7 +200,7 @@ exec = [
   modifiers = [ "super" ]
 
   [controls.exitSession]
-  # Exits River (and nimdow). Killing nimdow alone leaves River running.
+  # Exits River (and nimdow-wl). Killing nimdow-wl alone leaves River running.
   keys = [ "Delete" ]
   modifiers = [ "control", "alt" ]
 

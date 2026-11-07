@@ -5,14 +5,14 @@
 #
 #   -o  output dir for screenshots, logs and results (default: $E2E_OUT or ./e2e-out)
 #   -t  overall timeout of the nested river (default 240)
-#   -b  build bin/nimdow and bin/nimdowinput first
+#   -b  build bin/nimdow-wl and bin/nimdowinput first
 #   -s  only run the named scenarios (comma separated, see `scenario_*` below)
 #
 # Requires: river >= 0.5, grim, alacritty, jq, dbus-run-session, python3 with
 # gi (for tests/e2e/fake_sni.py), a running Wayland session to nest in.
 # nimdow is driven with tests/e2e/config.toml; input is injected with
 # bin/nimdowinput (virtual keyboard/pointer). State is asserted through
-# `nimdow --dumpState`, with screenshots (grim) as extra evidence.
+# `nimdow-wl --dumpState`, with screenshots (grim) as extra evidence.
 #
 # The nested river runs inside `dbus-run-session`: the tray tests use a private
 # session bus and never touch the real one (the inner part aborts if the bus
@@ -57,9 +57,9 @@ if [ "$MODE" = outer ]; then
   for tool in river grim alacritty jq dbus-run-session python3; do
     command -v "$tool" >/dev/null || { echo "missing tool: $tool"; exit 2; }
   done
-  if [ "$BUILD" = 1 ] || [ ! -x "$ROOT/bin/nimdow" ] || [ ! -x "$ROOT/bin/nimdowinput" ]; then
+  if [ "$BUILD" = 1 ] || [ ! -x "$ROOT/bin/nimdow-wl" ] || [ ! -x "$ROOT/bin/nimdowinput" ]; then
     (cd "$ROOT" &&
-      nim c --hints:off -o:bin/nimdow --deepcopy:on src/nimdow.nim &&
+      nim c --hints:off -o:bin/nimdow-wl --deepcopy:on src/nimdow.nim &&
       nim c --hints:off -o:bin/nimdowinput tests/e2e/nimdowinput.nim) || exit 2
   fi
 
@@ -95,7 +95,7 @@ if [ "$MODE" = outer ]; then
       sed -i '/^PENDING exitSession/d' "$RESULTS"
       if [ "$river_status" = 124 ] || [ "$river_status" = 137 ]; then
         echo "FAIL exitSession: river was still running after ${TIMEOUT}s" >> "$RESULTS"
-      elif ! grep -q "Starting Nimdow" "$OUT/nimdow-$phase.log" 2>/dev/null; then
+      elif ! grep -q "Starting nimdow-wl" "$OUT/nimdow-wl-$phase.log" 2>/dev/null; then
         echo "FAIL exitSession: nimdow log missing" >> "$RESULTS"
       else
         echo "PASS exitSession: river exited (status $river_status) after ${elapsed}s" >> "$RESULTS"
@@ -121,7 +121,7 @@ if [ "$MODE" = outer ]; then
     # (nimdow's log also holds the output of spawned alacritty clients, which
     # complain when river goes away.)
     bad_nimdow=$(grep -E 'ERROR|Error:|SIGSEGV|unhandled exception|Traceback|Segmentation' \
-      "$OUT/nimdow-$phase.log" 2>/dev/null | grep -viE 'Broken pipe|ExitFailure' || true)
+      "$OUT/nimdow-wl-$phase.log" 2>/dev/null | grep -viE 'Broken pipe|ExitFailure' || true)
     if [ -n "$bad_nimdow" ]; then
       echo "FAIL nimdowLog-$phase: $(echo "$bad_nimdow" | head -3 | tr '\n' '|')" >> "$RESULTS"
     else
@@ -164,7 +164,7 @@ export XDG_RUNTIME_DIR="$E2E_RT"
 # Never touch the real systemd user session (env export, autostart target).
 export NIMDOW_NO_SESSION=1
 
-NIMDOW="$ROOT/bin/nimdow"
+NIMDOW="$ROOT/bin/nimdow-wl"
 INPUT="$ROOT/bin/nimdowinput"
 ST="$OUT/state.json"
 JQDEFS='def M: .monitors[0]; def C: M.clients; def F: .focused;
@@ -1043,7 +1043,7 @@ scenario_trayHostOnly() {
   begin trayHostOnly
   expect "item registered before nimdow started is shown (watcher's list)" \
     '(M.tray | length) >= 1 and M.tray[0].id == "fake-name" and M.tray[0].hasIcon'
-  grep -q "another StatusNotifierWatcher exists" "$OUT/nimdow-$PHASE.log" || {
+  grep -q "another StatusNotifierWatcher exists" "$OUT/nimdow-wl-$PHASE.log" || {
     FAILED=1; DETAIL="$DETAIL [nimdow did not report host-only mode]"; }
   wait_log "watcher RegisterStatusNotifierHost org.kde.StatusNotifierHost-" "nimdow registered its host"
   tray_item pixmap fake-pixmap; PIX_PID=$LAST_PID
@@ -1116,7 +1116,7 @@ if [ "$PHASE" = trayhost ]; then
   tray_item name fake-name
   for i in $(seq 1 50); do grep -q "watcher RegisterStatusNotifierItem" "$SNI_LOG" && break; sleep 0.1; done
 fi
-"$NIMDOW" --config "$ROOT/tests/e2e/config.toml" > "$OUT/nimdow-$PHASE.log" 2>&1 &
+"$NIMDOW" --config "$ROOT/tests/e2e/config.toml" > "$OUT/nimdow-wl-$PHASE.log" 2>&1 &
 NIMDOW_PID=$!
 EXPECTED_MONITORS=1
 [ "$PHASE" = multi ] && EXPECTED_MONITORS=2

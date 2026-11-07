@@ -8,13 +8,13 @@ import logger
 ## - export the display variables to the systemd user manager and the D-Bus
 ##   activation environment, so D-Bus-activated programs (xdg-desktop-portal-gtk,
 ##   "Open with" from file managers, ...) can reach the display;
-## - start `nimdow-session.target`, which binds `graphical-session.target` and
+## - start `nimdow-wl-session.target`, which binds `graphical-session.target` and
 ##   pulls in `xdg-desktop-autostart.target` (~/.config/autostart entries).
 ## The target is stopped again when nimdow exits.
 ## Set NIMDOW_NO_SESSION=1 to skip all of this (e.g. when nested for tests).
 
 const
-  sessionTarget = "nimdow-session.target"
+  sessionTarget = "nimdow-wl-session.target"
   exportedVars = [
     "WAYLAND_DISPLAY", "DISPLAY", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP",
     "XDG_SESSION_TYPE", "GTK_THEME", "QT_QPA_PLATFORMTHEME", "XCURSOR_THEME",
@@ -45,9 +45,9 @@ proc startSession*() =
   if not existsEnv("XDG_SESSION_TYPE"):
     putEnv("XDG_SESSION_TYPE", "wayland")
   if not existsEnv("XDG_CURRENT_DESKTOP"):
-    putEnv("XDG_CURRENT_DESKTOP", "nimdow")
+    putEnv("XDG_CURRENT_DESKTOP", "nimdow-wl")
   if not existsEnv("XDG_SESSION_DESKTOP"):
-    putEnv("XDG_SESSION_DESKTOP", "nimdow")
+    putEnv("XDG_SESSION_DESKTOP", "nimdow-wl")
 
   var vars: seq[string]
   for v in exportedVars:

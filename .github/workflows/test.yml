@@ -13,7 +13,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed base-devel git nim nimble wayland libxkbcommon \
             cairo pango librsvg systemd-libs glib2 harfbuzz gdk-pixbuf2 pkgconf gcc
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"

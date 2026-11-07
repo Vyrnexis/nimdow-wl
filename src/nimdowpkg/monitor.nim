@@ -205,7 +205,6 @@ proc setConfig*(this: Monitor, config: Config) =
   for client in this.taggedClients.clients:
     if client.borderWidth != 0 or this.monitorSettings.layoutSettings.outerGap > 0:
       client.borderWidth = this.windowSettings.borderWidth
-    client.oldBorderWidth = this.windowSettings.borderWidth
 
   this.doLayout()
 
@@ -416,12 +415,10 @@ proc setFloating*(this: Monitor, client: Client, floating: bool) =
   if floating == client.isFloating:
     return
 
-  client.oldFloatingState = client.isFloating
   client.isFloating = floating
 
   if floating:
     if client.borderWidth == 0:
-      client.oldBorderWidth = 0
       client.borderWidth = this.windowSettings.borderWidth
     let
       usable = this.usableArea()

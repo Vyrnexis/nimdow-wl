@@ -37,10 +37,6 @@ iterator currClientsIter*(this: TaggedClients): ClientNode {.inline, closure.} =
     if node.value.tagIDs.anyIt(this.selectedTags.contains(it)):
       yield node
 
-func currClientsLen*(this: TaggedClients): int =
-  for c in this.currClientsIter:
-    inc result
-
 iterator currClientsReverseIter*(this: TaggedClients): ClientNode {.inline, closure.} =
   ## Iterates over clients in reverse stack order.
   for node in this.clients.reverseNodes:
@@ -52,21 +48,6 @@ proc findNodeByWindow*(this: TaggedClients, window: Window): ClientNode =
   for node in this.clients.nodes:
     if node.value.window == window:
       return node
-
-proc findByWindow*(this: TaggedClients, window: Window): Client =
-  ## Finds a client based on its window property.
-  let node = this.findNodeByWindow(window)
-  if node != nil:
-    return node.value
-
-proc findByWindowInCurrentTags*(this: TaggedClients, window: Window): Client =
-  ## Finds a client based on its window property,
-  ## searching only the currently selected tags.
-  for node in this.currClientsIter:
-    let client = node.value
-    if client.window == window:
-      return client
-  return nil
 
 proc findLastLayoutNode*( this: TaggedClients): ClientNode =
   for n in this.currClientsReverseIter:
@@ -117,13 +98,6 @@ iterator currClientsSelectionNewToOldIter*(this: TaggedClients): Client {.inline
   ## from most recent to least recent.
   for i in countdown(this.clientSelection.high, this.clientSelection.low):
     let client = this.clientSelection[i]
-    if client.tagIDs.anyIt(this.selectedTags.contains(it)):
-      yield client
-
-iterator currClientsSelectionOldToNewIter*(this: TaggedClients): Client {.inline, closure.} =
-  ## Iterates over clients in order of selection,
-  ## from least recent to most recent.
-  for client in this.clientSelection:
     if client.tagIDs.anyIt(this.selectedTags.contains(it)):
       yield client
 
@@ -191,7 +165,7 @@ proc removeByWindow*(this: TaggedClients, window: Window): bool =
 
 proc selectClient*(this: TaggedClients, window: Window) =
   ## Sets the client as the most recently selected,
-  ## found by its window ID.
+  ## found by its window.
   var foundClient: Client
   for i, client in this.clientSelection:
     if client.window == window:

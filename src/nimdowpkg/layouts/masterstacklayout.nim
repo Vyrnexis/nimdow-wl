@@ -91,7 +91,6 @@ proc layoutSingleClient(
   screenHeight: uint,
   offset: LayoutOffset
 ) =
-  client.oldBorderWidth = client.borderWidth
   # Hide border if it's the only client
   if this.outerGap == 0:
     client.borderWidth = 0
@@ -164,7 +163,6 @@ proc layoutMultipleClients(
       clientHeight = stackClientHeight
       clientWidth = uint(normalClientWidth.int - widthDiff)
 
-    client.oldBorderWidth = client.borderWidth
     client.borderWidth = this.borderWidth
     client.resize(
         this.monitorArea.x + (xPos + offset.left).int,

@@ -8,10 +8,6 @@ iterator reverseNodes*[T](L: SomeLinkedList[T]): SomeLinkedNode[T] {.inline, clo
     yield it
     it = it.prev
 
-iterator reverseItems*[T](L: SomeLinkedList[T]): T {.inline, closure.} =
-  for node in L.reverseNodes:
-    yield node.value
-
 proc swap*[T](a, b: var DoublyLinkedNode[T]) =
   let temp = a.value
   a.value = b.value

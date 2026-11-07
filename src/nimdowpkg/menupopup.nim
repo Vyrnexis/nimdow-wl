@@ -867,7 +867,6 @@ proc newMenuManager*(ctx: BarContext): MenuManager =
 # Manage / render sequences
 # ---------------------------------------------------------------------------
 
-proc isOpen*(m: MenuManager): bool = m != nil and m.popups.len > 0
 
 proc keyboardShell*(m: MenuManager): RiverShellSurfaceV1 =
   ## The shell surface that should have the keyboard focus (nil: none, or not

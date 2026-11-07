@@ -123,12 +123,6 @@ proc readLayout*(m: SdBusMessage): tuple[ok: bool, revision: uint32, root: MenuE
     return
   (true, revision, root)
 
-proc readSignalRevision*(m: SdBusMessage): uint32 =
-  ## The revision of a LayoutUpdated signal `ui`.
-  var revision: uint32
-  if sd_bus_message_read(m, "u", addr revision) >= 0:
-    result = revision
-
 # ---------------------------------------------------------------------------
 # Calls (asynchronous: the reply goes to `callback` with `userdata`)
 # ---------------------------------------------------------------------------

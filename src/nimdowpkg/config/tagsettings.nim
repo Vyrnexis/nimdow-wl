@@ -13,10 +13,6 @@ proc createDefaultTagSettings*(): TagSettings =
   for i in 1..tagCount:
     result[i] = newTagSetting($i, 1, 50)
 
-proc createUniformTagSettings*(displayString: string, numMasterWindows: Positive, defaultMasterWidthPercentage: int): TagSettings =
-  for i in 1..tagCount:
-    result[i] = newTagSetting(displayString, numMasterWindows, defaultMasterWidthPercentage)
-
 proc parseTagSetting(tagSetting: var TagSetting, settingsTable: TomlTableRef) =
   # Check for displayString
   if settingsTable.hasKey("displayString"):

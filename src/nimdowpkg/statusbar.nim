@@ -984,14 +984,26 @@ proc renderStringRightAligned(
       run.info = this.measure(run.text, this.fontFor(run.font))
       stringWidth += run.info.width
 
-  # Find the "Full block" symbol's height and position. This helps line up
-  # other symbols commonly used for block style statusbars.
+  # Colored backgrounds are drawn as a block lined up with the glyphs used
+  # for block style statusbars. When the status uses Powerline separators
+  # (U+E0A0..U+E0D7, e.g. from Nerd Fonts), the block matches their height:
+  # many fonts draw them over the full line height, but their "Full block"
+  # (U+2588) shorter, which left the separators sticking out of the segment.
+  # Otherwise the "Full block" symbol is used.
   # The block is snapped outwards to whole physical pixels: at fractional
   # scales rounding it in logical units can leave the top or bottom pixel row
-  # of a segment unpainted next to the block glyphs drawn by the font.
+  # of a segment unpainted.
+  var probe = ""
+  for run in runs:
+    if run.bg == -1 and not run.isSeparator:
+      for rune in run.text.runes:
+        if rune.int32 in 0xE0A0'i32 .. 0xE0D7'i32 and $rune notin probe:
+          probe.add $rune
+  if probe.len == 0:
+    probe = "█"
   var blockTop, blockHeight = 0.0
   block findBlock:
-    let layout = this.newLayout("█", this.allFonts)
+    let layout = this.newLayout(probe, this.allFonts)
     var
       ink, logical: PangoRectangle
       pixelW, logicalH: cint

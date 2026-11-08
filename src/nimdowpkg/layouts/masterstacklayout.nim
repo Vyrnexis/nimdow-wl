@@ -11,6 +11,8 @@ type MasterStackLayout* = ref object of Layout
   widthDiff*: int
   defaultWidth*: int
   outerGap*: uint
+  ## The screen width `widthDiff` was last derived from (see `setDefaultWidth`).
+  widthBasis*: int
 
 proc layoutSingleClient(
   this: MasterStackLayout,
@@ -98,8 +100,9 @@ proc layoutSingleClient(
   client.resize(
     this.monitorArea.x + offset.left.int + int(this.outerGap),
     this.monitorArea.y + offset.top.int + int(this.outerGap),
-    max(uint 1, screenWidth - this.outerGap * 2 - client.borderWidth * 2),
-    max(uint 1, screenHeight - this.outerGap * 2 - client.borderWidth * 2)
+    # Computed signed: narrow screens must not underflow.
+    max(1, screenWidth.int - this.outerGap.int * 2 - client.borderWidth.int * 2).uint,
+    max(1, screenHeight.int - this.outerGap.int * 2 - client.borderWidth.int * 2).uint
   )
 
 proc layoutMultipleClients(
@@ -173,6 +176,7 @@ proc layoutMultipleClients(
 
 proc setDefaultWidth*(this: MasterStackLayout, offset: LayoutOffset) =
   let screenWidth = calcScreenWidth(this, offset)
+  this.widthBasis = screenWidth
   let pxPercent = math.round(screenWidth.float / 100).int
   this.widthDiff = (this.defaultWidth - 50) * pxPercent
 

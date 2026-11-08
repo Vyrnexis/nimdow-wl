@@ -114,7 +114,6 @@ type
     ## the next manage sequence.
     warpMonitor: Monitor
     warpClient: Client
-    nextMonitorID: MonitorID
     ## Nil when the status bar is unavailable.
     barCtx: BarContext
     ## The system tray; nil when disabled or without a D-Bus session bus.
@@ -222,11 +221,15 @@ proc startTray*(this: WindowManager) =
     return
   this.tray = newTray(this.config.trayIconTheme, proc() = this.markDirty())
 
-proc setStatus*(this: WindowManager, status: string) =
+proc setStatus*(this: WindowManager, status: string): bool =
   ## Sets the text shown on the right of the status bars (`nimdow-wl --status`).
-  ## The caller must `markDirty` so the bars are redrawn.
+  ## Returns if it changed; only then must the caller `markDirty` so the bars
+  ## are redrawn.
+  if status == this.status:
+    return false
   this.status = status
   this.applyStatus()
+  return true
 
 proc monitorOf(this: WindowManager, client: Client): Monitor =
   for monitor in this.monitors.values():
@@ -536,27 +539,34 @@ proc dumpState*(this: WindowManager, path: string) =
     let tmp = target & ".tmp"
     writeFile(tmp, $state)
     moveFile(tmp, target)
-  except:
+  except CatchableError:
     log "Failed to write the state to " & target & ": " & getCurrentExceptionMsg(), lvlError
 
-proc reloadConfig*(this: WindowManager) =
-  let
-    oldConfig = this.config
-    oldLoggingEnabled = logger.enabled
+proc applyConfig*(this: WindowManager, config: Config, configTable: TomlTable) =
+  ## Fills `config` from the config table and makes it the active config.
+  ## The one place that runs the config population steps, in their required
+  ## order (the actions must exist before key combos are bound to them).
+  ## Raises if the config is invalid; the previous config stays active then.
+  let previous = this.config
+  this.config = config
+  try:
+    config.populateAppRules(configTable)
+    this.mapConfigActions()
+    config.populateKeyComboTable(configTable)
+    config.populateGeneralSettings(configTable)
+    logger.enabled = config.loggingEnabled
+  except Exception:
+    this.config = previous
+    raise
 
-  this.config = newConfig()
+proc reloadConfig*(this: WindowManager) =
+  let oldLoggingEnabled = logger.enabled
 
   try:
-    let configTable = configloader.loadConfigFile()
-    this.config.populateAppRules(configTable)
-    this.mapConfigActions()
-    this.config.populateKeyComboTable(configTable)
-    this.config.populateGeneralSettings(configTable)
-    logger.enabled = this.config.loggingEnabled
-  except:
+    this.applyConfig(newConfig(), configloader.loadConfigFile())
+  except Exception:
+    # The old config stays active if the new one fails to load.
     logger.enabled = oldLoggingEnabled
-    # If the config fails to load, restore the old config.
-    this.config = oldConfig
     log getCurrentExceptionMsg(), lvlError
 
   for monitor in this.monitors.mvalues():
@@ -701,6 +711,26 @@ proc mapConfigActions*(this: WindowManager) =
   # Ends the whole River session (killing nimdow alone leaves River running).
   createControl(keyCombo, $wmcExitSession):
     river_window_manager_v1_exit_session(this.manager)
+
+proc runAction(this: WindowManager, command: string, key: string) =
+  ## Runs a configured action, never letting its failure take the manager down.
+  try:
+    this.config.actionIdentifierTable[command]((key, 0'u32))
+  except CatchableError:
+    log "Action " & command & " failed: " & getCurrentExceptionMsg(), lvlError
+
+proc runIpcAction*(this: WindowManager, command: string, arg: string) =
+  ## Runs the action for an IPC command (`arg` is e.g. a tag number).
+  if not this.config.actionIdentifierTable.hasKey(command):
+    return
+  # Most actions work on the selected monitor, which is nil without outputs.
+  if this.selectedMonitor == nil and
+     command notin [$wmcReloadConfig, $wmcDumpState, $wmcExitSession]:
+    log "No monitor to run " & command & " on", lvlWarn
+    return
+  this.runAction(command, arg)
+  # The state changed outside of a manage sequence: have River start one.
+  this.markDirty()
 
 # ---------------------------------------------------------------------------
 # Windows
@@ -938,8 +968,11 @@ proc syncOutputs(this: WindowManager) =
       result = cmp(a.y, b.y)
   )
   for output in fresh:
-    let id = this.nextMonitorID
-    inc this.nextMonitorID
+    # The lowest free ID: per monitor config and status indices (NIMDOW_MONITOR_INDEX)
+    # then stay in step with the monitors' order after outputs come and go.
+    var id = 1
+    while this.monitors.hasKey(id):
+      inc id
     output.monitor = newMonitor(id, output.obj, output.outputArea, this.config)
     output.monitor.reserved = output.reservedEdges()
     this.monitors[id] = output.monitor
@@ -948,8 +981,8 @@ proc syncOutputs(this: WindowManager) =
       output.monitor.statusBar = newStatusBar(
         this.barCtx, settings.barSettings, settings.tagSettings
       )
-      # Reserves the bar's space.
-      output.monitor.updateMonitor()
+    # Applies the layer shell reservation and reserves the bar's space.
+    output.monitor.updateMonitor()
     if this.selectedMonitor == nil:
       this.selectedMonitor = output.monitor
   if fresh.len > 0:
@@ -972,11 +1005,16 @@ proc centerIfAtOrigin(client: Client, monitor: Monitor) =
 proc applyHints(this: WindowManager, client: Client, monitor: Monitor) =
   ## Dialogs/transients (a parent) and fixed size windows (min == max) float.
   client.hintsDirty = false
-  var autoFloat = client.hasParent
-  if client.minWidth > 0 and client.minWidth == client.maxWidth and
-     client.minHeight > 0 and client.minHeight == client.maxHeight:
-    autoFloat = true
-  if autoFloat and not client.isFloating and not client.isFullscreen:
+  let fixedSize =
+    client.minWidth > 0 and client.minWidth == client.maxWidth and
+    client.minHeight > 0 and client.minHeight == client.maxHeight
+  client.isFixedSize = fixedSize
+  if (client.hasParent or fixedSize) and not client.isFloating:
+    if client.isFullscreen:
+      # Not arranged by the layout once fullscreen is left.
+      if fixedSize:
+        client.isFloating = true
+      return
     if monitor != nil:
       monitor.setFloating(client, true)
     else:
@@ -984,8 +1022,7 @@ proc applyHints(this: WindowManager, client: Client, monitor: Monitor) =
     # Hints often arrive after the window was already laid out as a tile, so
     # drop the tile geometry: a fixed size window gets exactly its size, and
     # every auto-floated window is centered.
-    if client.minWidth > 0 and client.minWidth == client.maxWidth and
-       client.minHeight > 0 and client.minHeight == client.maxHeight:
+    if fixedSize:
       client.width = client.minWidth.uint
       client.height = client.minHeight.uint
     client.needsCenter = true
@@ -1655,7 +1692,10 @@ proc onManageStart(this: WindowManager) =
   this.pressedCombos.setLen 0
   for combo in combos:
     if this.selectedMonitor != nil and this.config.keyComboTable.hasKey(combo):
-      this.config.keyComboTable[combo](combo)
+      try:
+        this.config.keyComboTable[combo](combo)
+      except CatchableError:
+        log "Key action failed: " & getCurrentExceptionMsg(), lvlError
   # A reload in the loop above needs its bindings now.
   this.syncSeats()
 
@@ -1781,13 +1821,20 @@ wmListener.seat = wmSeat
 
 proc newWindowManager*(config: Config, configTable: TomlTable): WindowManager =
   ## Connects to River and binds the window management globals.
-  ## Raises an Exception when River (or a required global) is unavailable.
-  result = WindowManager(config: config, nextMonitorID: 1)
+  ## Raises an IOError when River (or a required global) is unavailable.
+  result = WindowManager(config: config)
   wm = result
+
+  # Config first: it enables the logger, so what follows is logged.
+  try:
+    result.applyConfig(config, configTable)
+  except Exception:
+    logger.enabled = config.loggingEnabled
+    log getCurrentExceptionMsg(), lvlError
 
   result.display = connect()
   if result.display.isNil:
-    raise newException(Exception, "failed to connect to the Wayland server")
+    raise newException(IOError, "failed to connect to the Wayland server")
 
   # Avoid passing WAYLAND_DEBUG on to our children.
   delEnv("WAYLAND_DEBUG")
@@ -1812,7 +1859,7 @@ proc newWindowManager*(config: Config, configTable: TomlTable): WindowManager =
     log "river_layer_shell_v1 not available: layer surfaces will not work", lvlWarn
   if result.manager.isNil or result.xkbBindings.isNil:
     raise newException(
-      Exception,
+      IOError,
       "river_window_manager_v1 or river_xkb_bindings_v1 not supported by the Wayland server"
     )
 
@@ -1822,14 +1869,6 @@ proc newWindowManager*(config: Config, configTable: TomlTable): WindowManager =
   else:
     result.barCtx.requestManage = proc() = wm.markDirty()
     result.menu = newMenuManager(result.barCtx)
-
-  # Config setup
-  try:
-    result.mapConfigActions()
-    result.config.populateKeyComboTable(configTable)
-    result.config.populateGeneralSettings(configTable)
-  except:
-    log getCurrentExceptionMsg(), lvlError
 
   discard river_window_manager_v1_add_listener(result.manager, addr wmListener, nil)
   # Receive the initial globals (outputs, seats) before the event loop starts.

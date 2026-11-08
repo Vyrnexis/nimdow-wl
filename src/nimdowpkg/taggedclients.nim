@@ -60,33 +60,37 @@ proc findNextCurrClient*(
   reversed: bool = false,
   accept: proc(client: Client): bool = (client: Client) => true
 ): ClientNode =
-  if startClient == nil or this.clients.len <= 1:
+  ## The next (or previous, if `reversed`) client on the selected tags after
+  ## `startClient` that `accept`s, wrapping around. Nil if there is none.
+  if startClient == nil:
     return nil
 
   template forEachClientNode(node, body: untyped) =
     if reversed:
-      for n in this.currClientsReverseIter:
-        var node: ClientNode = n
+      for node in this.currClientsReverseIter:
         body
     else:
-      for n in this.currClientsIter:
-        var node: ClientNode = n
+      for node in this.currClientsIter:
         body
 
   var startClientFound = false
   forEachClientNode(node):
     if startClientFound:
-      return node
-    if startClient == node.value:
+      if accept(node.value):
+        return node
+    elif startClient == node.value:
       startClientFound = true
-      continue
 
   # Client was not in the list!
   if not startClientFound:
     return nil
 
+  # Wrap around, up to the start client.
   forEachClientNode(node):
-    return node
+    if node.value == startClient:
+      return nil
+    if accept(node.value):
+      return node
 
 iterator clientWithTagIter*(this: TaggedClients, tagID: TagID): ClientNode {.inline, closure.} =
   for node in this.clients.nodes:

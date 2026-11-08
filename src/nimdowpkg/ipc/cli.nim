@@ -21,8 +21,10 @@ proc handleWMCommand(commandStr: string): bool =
     socket = newSocket(AF_UNIX, SOCK_STREAM, IPPROTO_IP)
     let socketLoc = findSocketPath()
     socket.connectUnix(socketLoc)
-  except Exception:
-    log "Failed to connect to live socket", lvlError
+  except CatchableError:
+    log "Failed to connect to live socket: " & getCurrentExceptionMsg(), lvlError
+    if socket != nil:
+      socket.close()
     return false
 
   let message = fmt"{ipcPrefix} {commandStr}"
@@ -45,6 +47,9 @@ proc handleSpecialCommand(strArr: seq[string]): bool =
       else:
         echo fmt"nimdow-wl {version}"
     of "c", "config":
+      if strArr.len < 2:
+        log "config needs a path: nimdow-wl --config <path>", lvlError
+        return false
       configloader.configLoc = strArr[1]
       return true
     else:
@@ -76,12 +81,13 @@ proc handleCommandLineParams*(): bool =
   if strArr.len > 1 and strArr[0].toLowerAscii == "dumpstate":
     strArr[1] = absolutePath(strArr[1])
 
+  if strArr.len == 0:
+    return true
+
   let commandStr = strArr.join(" ")
-  try:
-    # Ensure the first param is a valid command.
-    discard parseEnum[WMCommand](strArr[0])
+  # The first param must be a valid command to be sent.
+  if parseCommand(strArr[0].toLowerAscii).isSome:
     discard handleWMCommand(commandStr)
     return false
-  except Exception:
-    return handleSpecialCommand(strArr)
+  return handleSpecialCommand(strArr)
 

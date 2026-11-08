@@ -118,7 +118,11 @@ proc updateMonitor*(this: Monitor) =
   for tag in this.taggedClients.tags:
     tag.layout.monitorArea = this.area
     if tag.layout of MasterStackLayout:
-      cast[MasterStackLayout](tag.layout).setDefaultWidth(this.layoutOffset)
+      let layout = cast[MasterStackLayout](tag.layout)
+      # The width the user set (widthDiff) survives bar toggles and changes of
+      # the reservation that leave the screen width as it was.
+      if layout.calcScreenWidth(this.layoutOffset) != layout.widthBasis:
+        layout.setDefaultWidth(this.layoutOffset)
   this.doLayout()
 
 ########################################################
@@ -226,10 +230,10 @@ proc tagIDFromArg*(this: Monitor, arg: string): Option[TagID] =
   try:
     let tagNumber = parseInt(arg)
     if tagNumber < 1 or tagNumber > this.tags.len:
-      raise newException(Exception, "Invalid tag number: " & $tagNumber)
-
+      log "Invalid tag number: " & $tagNumber, lvlError
+      return
     return this.tags[tagNumber - 1].id.option
-  except:
+  except ValueError:
     log "Invalid tag number \"" & arg & "\": " & getCurrentExceptionMsg(), lvlError
 
 proc focusClient*(this: Monitor, client: Client) =

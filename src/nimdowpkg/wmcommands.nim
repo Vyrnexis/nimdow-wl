@@ -44,6 +44,6 @@ type
 proc parseCommand*(command: string): Option[WMCommand] =
   try:
     return some(parseEnum[WMCommand](command))
-  except:
+  except ValueError:
     return none[WMCommand]()
 

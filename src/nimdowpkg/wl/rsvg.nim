@@ -1,9 +1,8 @@
 ## Minimal bindings to librsvg, used to render SVG tray icons.
 
-{.passC: gorge("pkg-config --cflags librsvg-2.0").}
-{.passL: gorge("pkg-config --libs librsvg-2.0").}
+import ./cairo, ./pkgconfig
 
-import cairo
+pkgConfig "librsvg-2.0"
 
 type
   RsvgHandleObj = object

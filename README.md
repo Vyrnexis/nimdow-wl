@@ -46,7 +46,7 @@ The default config ends up in `/usr/share/nimdow-wl/config.default.toml`.
 
 ```sh
 nimble install -d     # dependencies
-nimble release        # runs ./build.sh, writes ./bin/nimdow-wl
+nimble release        # writes ./bin/nimdow-wl
 ```
 
 Then install the files, as `packaging/arch/PKGBUILD` does:
@@ -161,7 +161,8 @@ Window manager controls can also be run through the same client, e.g. `nimdow-wl
 Nimble tasks:
 
 - `nimble debug`: debug build to `bin/nimdow-wl`
-- `nimble release`: release build (`build.sh`)
+- `nimble release`: release build
+- `nimble test`: run the unit tests (needs `nimtest`)
 - `nimble wlgen`: regenerate the Wayland protocol bindings from `protocol/*.xml`
 - `nimble e2e`: build and run the end-to-end tests
 - `nimble lint`: run `nimpretty`

@@ -1,11 +1,14 @@
-*
-!/**/
-!*.*
-bin
-testresults
-nimcache
-.direnv
-e2e-out
+# Build output
+bin/
+nimcache/
+testresults/
+e2e-out/
+.direnv/
+
+# Compiled unit tests (nimtest builds them next to their sources)
+tests/**/*_test
+tests/e2e/nimdowinput
+tests/e2e/nimdowinput_*
 
 # makepkg build artifacts
 packaging/arch/*

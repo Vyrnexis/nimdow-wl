@@ -38,7 +38,7 @@ build() {
   export LATEST_COMMIT
   LATEST_COMMIT=$(git rev-parse --short HEAD)
   mkdir -p bin
-  nim c -d:release --deepcopy:on --hints:off \
+  nim c -d:release --hints:off \
     --nimcache:"$srcdir/nimcache" \
     --path:"$srcdir/parsetoml-0.7.2/src" \
     --passC:"$CFLAGS" --passL:"$LDFLAGS" \

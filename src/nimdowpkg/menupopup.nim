@@ -21,16 +21,14 @@ import
   std/[posix, tables, strutils, json]
 
 import
-  logger,
   config/configloader,
   statusbar,
   tray/tray,
   tray/icons,
   wl/client as wlclient,
   wl/cairo,
-  wl/protocols/[river_window_management_v1, viewporter, fractional_scale_v1]
-
-{.passC: gorge("pkg-config --cflags xkbcommon").}
+  wl/shm,
+  wl/protocols/river_window_management_v1
 
 const
   border = 1
@@ -63,10 +61,9 @@ type
     y, h: int
     entry: MenuEntry
 
-  ShmBuf = ref object
-    popup: MenuPopup
-    buffer: WlBuffer
-    busy: bool
+  ## What a popup's buffer was last drawn from.
+  DrawKey = object
+    width, height, scale120, contentGen, selected: int
 
   MenuPopup = ref object
     mgr: MenuManager
@@ -83,20 +80,14 @@ type
     ## Incremented when the content or the layout changed.
     contentGen: int
     target: InputTarget
-    surface: WlSurface
+    scaled: ScaledSurface
+    pool: ShmPool
     shell: RiverShellSurfaceV1
     node: RiverNodeV1
-    viewport: WpViewport
-    fractional: WpFractionalScaleV1
-    scale120: int
-    mem: pointer
-    memSize: int
-    bufW, bufH: int
-    buffers: array[2, ShmBuf]
-    nextBuffer: int
     mapped: bool
-    drawnKey: string
-    icons: Table[string, CairoSurface]
+    drawn: DrawKey
+    ## `drawn` is valid.
+    hasDrawn: bool
     ## Not empty: this is a tooltip showing these lines (no rows, no input).
     tip: seq[string]
 
@@ -114,8 +105,10 @@ type
     popups: seq[MenuPopup]
     ## The tray session and its tree version the popups show.
     gen, version: int
-    ## The bar whose style (colors, font) and scale the popups use.
+    ## The bar whose style (colors) and scale the popups use, and its fonts
+    ## (own reference: the bar may be destroyed while popups are open).
     bar: StatusBar
+    fonts: FontSet
     area: tuple[x, y, w, h: int]
     ## The clicked icon (position on the screen) and the bottom of the bar.
     anchorX, anchorY, anchorBottom: int
@@ -139,14 +132,10 @@ type
     hoverDue: int64
     ## `checkTimers` told the event loop about the due timers.
     timerNotified: bool
-    pendingFlush: bool
     keyboardFocused: bool
     keyboardSurface: WlSurface
     # xkbcommon
     xkbContext, xkbKeymap, xkbState: pointer
-
-proc memfd_create(name: cstring, flags: cuint): cint
-  {.importc, header: "<sys/mman.h>".}
 
 proc xkb_context_new(flags: cint): pointer
   {.importc, header: "<xkbcommon/xkbcommon.h>".}
@@ -193,10 +182,14 @@ proc computeLayout(popup: MenuPopup) =
   let
     m = popup.mgr
     settings = m.bar.barSettings
-    desc = m.bar.fontDescription
+    desc = m.fonts.allFonts
+    # Measured like drawn: with the popup's device scale, so the font metrics
+    # (hinting) match.
     surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1)
-    cr = cairo_create(surface)
+  let deviceScale = popup.scaled.scale120.float / 120.0
+  cairo_surface_set_device_scale(surface, deviceScale, deviceScale)
   let
+    cr = cairo_create(surface)
     textH = textSize(cr, "Ag", desc).h
     rowH = max(m.bar.height, textH + 6)
   if popup.tip.len > 0:
@@ -280,23 +273,31 @@ proc place(popup: MenuPopup, parent: MenuPopup) =
 # Drawing
 # ---------------------------------------------------------------------------
 
-proc iconFor(popup: MenuPopup, name: string): CairoSurface =
-  ## The entry's icon rendered for this popup's scale (cached, nil: none).
-  let
-    px = max(1, (iconSize * popup.scale120 + 60) div 120)
-    key = name & "|" & $px
-  if key in popup.icons:
-    return popup.icons[key]
+var iconCache: Table[(string, int), CairoSurface]
+
+const maxCachedIcons = 128
+
+proc iconFor(name: string, px: int): CairoSurface =
+  ## The icon rendered at `px` pixels (cached by name and size, shared by all
+  ## popups; nil: none). Valid until the next call (the cache may be emptied).
+  let key = (name, px)
+  if key in iconCache:
+    return iconCache[key]
+  if iconCache.len >= maxCachedIcons:
+    for surface in iconCache.values:
+      if surface != nil:
+        cairo_surface_destroy(surface)
+    iconCache.clear()
   let file = findIconFile(name, "", px)
   if file.len > 0:
     result = renderFile(file, px)
-  popup.icons[key] = result
+  iconCache[key] = result
 
 proc drawRow(popup: MenuPopup, cr: Cairo, index: int) =
   let
     m = popup.mgr
     settings = m.bar.barSettings
-    desc = m.bar.fontDescription
+    desc = m.fonts.allFonts
     row = popup.rows[index]
     entry = row.entry
     fg = toRgba(settings.fgColor)
@@ -338,9 +339,10 @@ proc drawRow(popup: MenuPopup, cr: Cairo, index: int) =
       cairo_stroke(cr)
   of mtNone:
     if entry.iconName.len > 0:
-      let icon = popup.iconFor(entry.iconName)
+      let
+        px = max(1, (iconSize * popup.scaled.scale120 + 60) div 120)
+        icon = iconFor(entry.iconName, px)
       if icon != nil:
-        let px = max(1, (iconSize * popup.scale120 + 60) div 120)
         cairo_save(cr)
         cairo_translate(cr, (cx - iconSize div 2).cdouble, (cy - iconSize div 2).cdouble)
         cairo_scale(cr, iconSize.float / px.float, iconSize.float / px.float)
@@ -368,9 +370,10 @@ proc draw(popup: MenuPopup, data: pointer) =
   let
     settings = popup.mgr.bar.barSettings
     surface = cairo_image_surface_create_for_data(
-      data, CAIRO_FORMAT_ARGB32, popup.bufW.cint, popup.bufH.cint, (popup.bufW * 4).cint)
+      data, CAIRO_FORMAT_ARGB32, popup.pool.width.cint, popup.pool.height.cint,
+      (popup.pool.width * 4).cint)
   cairo_surface_set_device_scale(surface,
-    popup.bufW.float / popup.width.float, popup.bufH.float / popup.height.float)
+    popup.pool.width.float / popup.width.float, popup.pool.height.float / popup.height.float)
   let
     cr = cairo_create(surface)
     bg = toRgba(settings.bgColor)
@@ -387,7 +390,7 @@ proc draw(popup: MenuPopup, data: pointer) =
   if popup.tip.len > 0:
     let
       fg = toRgba(settings.fgColor)
-      desc = popup.mgr.bar.fontDescription
+      desc = popup.mgr.fonts.allFonts
       lineH = (popup.height - 2 * (border + padV)) div popup.tip.len
     cairo_set_source_rgba(cr, fg.r, fg.g, fg.b, 1.0)
     for i, line in popup.tip:
@@ -402,96 +405,16 @@ proc draw(popup: MenuPopup, data: pointer) =
   cairo_surface_destroy(surface)
 
 # ---------------------------------------------------------------------------
-# Shared memory buffers
-# ---------------------------------------------------------------------------
-
-proc bufferRelease(data: pointer, obj: WlBuffer) {.cdecl.} =
-  let buf = cast[ShmBuf](data)
-  buf.busy = false
-  let m = buf.popup.mgr
-  if m.pendingFlush:
-    m.pendingFlush = false
-    if m.ctx.requestManage != nil:
-      m.ctx.requestManage()
-
-var bufferListener = wl_buffer_noop_listener()
-bufferListener.release = bufferRelease
-
-proc freeBuffers(popup: MenuPopup) =
-  for i in 0 .. popup.buffers.high:
-    if popup.buffers[i] != nil:
-      wl_buffer_destroy(popup.buffers[i].buffer)
-      GC_unref popup.buffers[i]
-      popup.buffers[i] = nil
-  if popup.mem != nil:
-    discard munmap(popup.mem, popup.memSize)
-    popup.mem = nil
-  popup.bufW = 0
-  popup.bufH = 0
-
-proc allocBuffers(popup: MenuPopup, width, height: int): bool =
-  popup.freeBuffers()
-  let
-    stride = width * 4
-    size = stride * height * 2
-    fd = memfd_create("nimdow-menu", 1.cuint)
-  if fd < 0:
-    log "memfd_create failed", lvlError
-    return false
-  if ftruncate(fd, size.Off) != 0:
-    discard close(fd)
-    return false
-  let mem = mmap(nil, size, PROT_READ or PROT_WRITE, MAP_SHARED, fd, 0)
-  if mem == MAP_FAILED:
-    discard close(fd)
-    return false
-  popup.mem = mem
-  popup.memSize = size
-  popup.bufW = width
-  popup.bufH = height
-  let pool = wl_shm_create_pool(popup.mgr.ctx.shm, fd, size.int32)
-  for i in 0 .. popup.buffers.high:
-    let buf = ShmBuf(popup: popup)
-    GC_ref buf
-    buf.buffer = wl_shm_pool_create_buffer(
-      pool, (i * stride * height).int32, width.int32, height.int32, stride.int32,
-      WL_SHM_FORMAT_ARGB8888)
-    discard wl_buffer_add_listener(buf.buffer, addr bufferListener, cast[pointer](buf))
-    popup.buffers[i] = buf
-  wl_shm_pool_destroy(pool)
-  discard close(fd)
-  return true
-
-# ---------------------------------------------------------------------------
 # Popups
 # ---------------------------------------------------------------------------
-
-proc scaleChanged(popup: MenuPopup, scale120: int) =
-  if scale120 > 0 and scale120 != popup.scale120:
-    popup.scale120 = scale120
-    popup.target.scale120 = scale120
-    inc popup.contentGen
-    if popup.mgr.ctx.requestManage != nil:
-      popup.mgr.ctx.requestManage()
-
-proc fractionalPreferredScale(data: pointer, obj: WpFractionalScaleV1,
-    scale: uint32) {.cdecl.} =
-  cast[MenuPopup](data).scaleChanged(scale.int)
-
-var fractionalListener = wp_fractional_scale_v1_noop_listener()
-fractionalListener.preferred_scale = fractionalPreferredScale
-
-proc surfacePreferredBufferScale(data: pointer, obj: WlSurface, factor: int32) {.cdecl.} =
-  let popup = cast[MenuPopup](data)
-  if popup.fractional == nil:
-    popup.scaleChanged(factor.int * 120)
-
-var surfaceListener = wl_surface_noop_listener()
-surfaceListener.preferred_buffer_scale = surfacePreferredBufferScale
 
 proc requestManage(m: MenuManager) =
   if m.ctx.requestManage != nil:
     m.ctx.requestManage()
+
+proc setBar(m: MenuManager, bar: StatusBar) =
+  m.bar = bar
+  m.fonts = bar.fontSet
 
 proc onMotion(popup: MenuPopup, x, y: int) =
   let
@@ -508,30 +431,33 @@ proc newPopup(m: MenuManager, level, parentId: int, entries: seq[MenuEntry],
     tip: seq[string] = @[]): MenuPopup =
   let ctx = m.ctx
   result = MenuPopup(
-    mgr: m, level: level, parentId: parentId, entries: entries, selected: -1, tip: tip,
-    scale120: max(120, m.bar.scale120), icons: initTable[string, CairoSurface]()
+    mgr: m, level: level, parentId: parentId, entries: entries, selected: -1, tip: tip
   )
   GC_ref result
-  result.surface = wl_compositor_create_surface(ctx.compositor)
-  discard wl_surface_add_listener(result.surface, addr surfaceListener, cast[pointer](result))
-  if ctx.fractionalManager != nil:
-    result.viewport = wp_viewporter_get_viewport(ctx.viewporter, result.surface)
-    result.fractional = wp_fractional_scale_manager_v1_get_fractional_scale(
-      ctx.fractionalManager, result.surface)
-    discard wp_fractional_scale_v1_add_listener(
-      result.fractional, addr fractionalListener, cast[pointer](result))
-  result.shell = river_window_manager_v1_get_shell_surface(ctx.manager, result.surface)
-  result.node = river_shell_surface_v1_get_node(result.shell)
   let popup = result
+  result.scaled = newScaledSurface(
+    ctx.compositor, ctx.viewporter, ctx.fractionalManager, m.bar.scale120,
+    proc() =
+      # A tooltip has no input target.
+      if popup.target != nil:
+        popup.target.scale120 = popup.scaled.scale120
+      inc popup.contentGen
+      popup.mgr.requestManage()
+  )
+  result.pool = newShmPool(ctx.shm, "nimdow-menu", proc() =
+    popup.mgr.requestManage()
+  )
+  result.shell = river_window_manager_v1_get_shell_surface(ctx.manager, result.scaled.surface)
+  result.node = river_shell_surface_v1_get_node(result.shell)
   if tip.len > 0:
     # A tooltip never takes the pointer: an empty input region.
     let region = wl_compositor_create_region(ctx.compositor)
-    wl_surface_set_input_region(result.surface, region)
+    wl_surface_set_input_region(result.scaled.surface, region)
     wl_region_destroy(region)
     result.computeLayout()
     return
   result.target = InputTarget(
-    surface: result.surface, scale120: result.scale120,
+    surface: result.scaled.surface, scale120: result.scaled.scale120,
     enter: proc(x, y: int) = popup.onMotion(x, y),
     motion: proc(x, y: int) = popup.onMotion(x, y),
     button: proc(button, x, y: int) =
@@ -558,17 +484,10 @@ proc destroyPopup(m: MenuManager, popup: MenuPopup) =
     m.ctx.removeTarget(popup.target)
   if m.pendPopup == popup:
     m.pendPopup = nil
-  popup.freeBuffers()
-  for surface in popup.icons.values:
-    if surface != nil:
-      cairo_surface_destroy(surface)
-  popup.icons.clear()
+  popup.pool.destroy()
   river_node_v1_destroy(popup.node)
   river_shell_surface_v1_destroy(popup.shell)
-  if popup.fractional != nil:
-    wp_fractional_scale_v1_destroy(popup.fractional)
-    wp_viewport_destroy(popup.viewport)
-  wl_surface_destroy(popup.surface)
+  popup.scaled.destroy()
   let index = m.popups.find(popup)
   if index >= 0:
     m.popups.delete index
@@ -770,7 +689,7 @@ proc keyboardEnter(data: pointer, obj: WlKeyboard, serial: uint32, surface: WlSu
     keys: ptr WlArray) {.cdecl.} =
   let m = cast[MenuManager](data)
   for popup in m.popups:
-    if popup.surface == surface:
+    if popup.scaled.surface == surface:
       m.keyboardFocused = true
       m.keyboardSurface = surface
 
@@ -951,7 +870,7 @@ proc manageTooltip*(m: MenuManager, tray: Tray, bar: StatusBar,
       found = true
   if not found:
     return
-  m.bar = bar
+  m.setBar(bar)
   let tip = m.newPopup(0, 0, @[], lines)
   var
     x = region.x + region.width div 2 - tip.width div 2
@@ -1013,7 +932,7 @@ proc manage*(m: MenuManager, tray: Tray, bar: StatusBar,
     m.version = -1
   if not session.loaded:
     return
-  m.bar = bar
+  m.setBar(bar)
   m.area = area
   m.anchorX = session.anchorX
   m.anchorY = session.anchorY
@@ -1052,38 +971,25 @@ proc flush*(m: MenuManager) =
   for popup in all:
     river_node_v1_set_position(popup.node, popup.x.int32, popup.y.int32)
     river_node_v1_place_top(popup.node)
-    let key = $popup.width & "x" & $popup.height & "@" & $popup.scale120 & "#" &
-      $popup.contentGen & "/" & $popup.selected & "/" & $popup.x & "," & $popup.y
-    if popup.drawnKey == key:
+    let key = DrawKey(
+      width: popup.width, height: popup.height, scale120: popup.scaled.scale120,
+      contentGen: popup.contentGen, selected: popup.selected
+    )
+    if popup.hasDrawn and popup.drawn == key:
       continue
-    let
-      pixelWidth = (popup.width * popup.scale120 + 60) div 120
-      pixelHeight = (popup.height * popup.scale120 + 60) div 120
-    if popup.bufW != pixelWidth or popup.bufH != pixelHeight or popup.mem == nil:
-      if not popup.allocBuffers(pixelWidth, pixelHeight):
-        continue
-    var index = -1
-    for offset in 0 .. popup.buffers.high:
-      let candidate = (popup.nextBuffer + offset) mod popup.buffers.len
-      if not popup.buffers[candidate].busy:
-        index = candidate
-        break
+    if not popup.pool.resize(popup.scaled.physical(popup.width),
+        popup.scaled.physical(popup.height)):
+      continue
+    let index = popup.pool.acquire()
     if index == -1:
-      m.pendingFlush = true
+      # Retried once a buffer is released (the pool requests a manage sequence).
       continue
-    popup.nextBuffer = (index + 1) mod popup.buffers.len
-    popup.draw(cast[pointer](cast[int](popup.mem) + index * pixelWidth * 4 * pixelHeight))
-    if popup.viewport != nil:
-      wl_surface_set_buffer_scale(popup.surface, 1)
-      wp_viewport_set_destination(popup.viewport, popup.width.int32, popup.height.int32)
-    else:
-      wl_surface_set_buffer_scale(popup.surface, (popup.scale120 div 120).int32)
+    popup.draw(popup.pool.data(index))
+    popup.scaled.prepare(popup.width, popup.height)
     river_shell_surface_v1_sync_next_commit(popup.shell)
-    wl_surface_attach(popup.surface, popup.buffers[index].buffer, 0, 0)
-    wl_surface_damage_buffer(popup.surface, 0, 0, pixelWidth.int32, pixelHeight.int32)
-    wl_surface_commit(popup.surface)
-    popup.buffers[index].busy = true
-    popup.drawnKey = key
+    popup.pool.present(index, popup.scaled.surface)
+    popup.drawn = key
+    popup.hasDrawn = true
     if not popup.mapped:
       popup.mapped = true
       # The keyboard focus can go to it now.

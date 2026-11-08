@@ -7,12 +7,12 @@ import
   sugar
 
 import
-  taggedclients,
+  clientlist,
   area,
-  config/configloader,
-  statusbar,
-  wl/protocols/river_window_management_v1,
-  sys/logger
+  ../config/configloader,
+  ../bar/statusbar,
+  ../wl/protocols/river_window_management_v1,
+  ../sys/logger
 
 export options
 

@@ -7,12 +7,16 @@ import
 
 import
   client,
-  tag,
-  taginfo
+  tags,
+  masterstack
 
-export tag, taginfo, client, lists, sets
+export tags, masterstack, client, lists, sets
 
 type
+  Tag* = ref object
+    id*: TagID
+    layout*: MasterStackLayout
+
   ClientNode* = DoublyLinkedNode[Client]
 
   TaggedClients* = ref object
@@ -23,6 +27,12 @@ type
 
     tags*: seq[Tag]
     selectedTags*: OrderedSet[TagID]
+
+proc newTag*(id: TagID, layout: MasterStackLayout): Tag =
+  Tag(
+    id: id,
+    layout: layout
+  )
 
 proc newTaggedClients*(): TaggedClients = TaggedClients()
 

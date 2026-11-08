@@ -3,7 +3,7 @@ import
   strutils
 
 import
-  ../tag,
+  ../wm/tags,
   ../sys/logger
 
 type

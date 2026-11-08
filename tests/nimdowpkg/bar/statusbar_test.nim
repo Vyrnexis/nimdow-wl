@@ -3,7 +3,7 @@ import
   unicode
 
 # parseStatus is private: include the module to test it.
-include statusbar
+include bar/statusbar
 
 proc parse(s: string): ParsedStatus =
   StatusBar().parseStatus(s)

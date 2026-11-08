@@ -2,7 +2,7 @@ import
   parsetoml,
   strutils
 
-import ../taginfo
+import ../wm/tags
 
 const tableName = "appRule"
 const globChar = '*'

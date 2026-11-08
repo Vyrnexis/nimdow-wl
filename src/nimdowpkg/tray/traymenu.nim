@@ -22,7 +22,7 @@ import
 
 import
   ../config/configloader,
-  ../statusbar,
+  ../bar/statusbar,
   tray,
   icons,
   ../wl/client as wlclient,

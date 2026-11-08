@@ -4,8 +4,8 @@ import
 
 import
   area,
-  taginfo,
-  wl/protocols/river_window_management_v1
+  tags,
+  ../wl/protocols/river_window_management_v1
 
 export monotimes
 

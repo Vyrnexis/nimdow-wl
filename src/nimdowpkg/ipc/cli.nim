@@ -8,7 +8,7 @@ import
 import
   ipc,
   ../config/configloader,
-  ../wmcommands,
+  ../wm/commands,
   ../sys/logger
 
 const version* = "v0.7.41"

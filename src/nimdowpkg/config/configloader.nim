@@ -8,11 +8,11 @@ import
 import
   apprules,
   tagsettings,
-  ../point,
+  ../wm/area,
   keys,
   ../sys/spawn,
   ../sys/logger,
-  ../wmcommands
+  ../wm/commands
 
 export options
 

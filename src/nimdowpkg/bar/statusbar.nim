@@ -23,16 +23,16 @@ import
   std/[unicode, strutils, tables, os, math, sequtils]
 
 import
-  point,
-  sys/logger,
-  config/configloader,
-  config/tagsettings,
-  wl/client as wlclient,
-  wl/cairo,
-  wl/cursor,
-  wl/shm,
-  tray/tray,
-  wl/protocols/[river_window_management_v1, viewporter, fractional_scale_v1]
+  ../wm/area,
+  ../sys/logger,
+  ../config/configloader,
+  ../config/tagsettings,
+  ../wl/client as wlclient,
+  ../wl/cairo,
+  ../wl/cursor,
+  ../wl/shm,
+  ../tray/tray,
+  ../wl/protocols/[river_window_management_v1, viewporter, fractional_scale_v1]
 
 const
   boxWidth = 4

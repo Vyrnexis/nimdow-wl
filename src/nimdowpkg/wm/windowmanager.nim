@@ -3,21 +3,20 @@ import
   parsetoml
 
 import
-  taggedclients,
+  clientlist,
   monitor,
-  statusbar,
-  tray/traymenu,
-  tray/tray,
-  tag,
+  ../bar/statusbar,
+  ../tray/traymenu,
+  ../tray/tray,
   area,
-  config/configloader,
-  config/apprules,
-  layouts/masterstacklayout,
-  config/keys,
-  wmcommands,
-  wl/client as wlclient,
-  wl/protocols/[river_window_management_v1, river_xkb_bindings_v1, river_layer_shell_v1],
-  sys/logger,
+  ../config/configloader,
+  ../config/apprules,
+  masterstack,
+  ../config/keys,
+  commands,
+  ../wl/client as wlclient,
+  ../wl/protocols/[river_window_management_v1, river_xkb_bindings_v1, river_layer_shell_v1],
+  ../sys/logger,
   listutils
 
 export wlclient

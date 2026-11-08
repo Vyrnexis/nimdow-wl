@@ -8,12 +8,12 @@ import
   strformat
 
 import
-  nimdowpkg/windowmanager,
+  nimdowpkg/wm/windowmanager,
   nimdowpkg/tray/tray,
   nimdowpkg/config/configloader,
   nimdowpkg/ipc/cli,
   nimdowpkg/ipc/ipc,
-  nimdowpkg/wmcommands,
+  nimdowpkg/wm/commands,
   nimdowpkg/sys/spawn,
   nimdowpkg/sys/session,
   nimdowpkg/sys/logger

@@ -1,6 +1,6 @@
 import
   nimtest,
-  tag,
+  wm/tags,
   config/tagsettings,
   parsetoml
 

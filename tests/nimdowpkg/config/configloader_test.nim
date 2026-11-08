@@ -5,7 +5,7 @@ import
   tables,
   config/configloader,
   config/keys,
-  tag
+  wm/clientlist
 
 proc noop(keyCombo: KeyCombo) = discard
 

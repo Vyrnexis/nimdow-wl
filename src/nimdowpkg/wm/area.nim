@@ -1,6 +1,6 @@
 import math
 
-import point
+type Point*[T] = tuple[x, y: T]
 
 type
   Area* = tuple[x, y: int, width, height: uint]

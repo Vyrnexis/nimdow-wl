@@ -47,3 +47,43 @@ describe "Tag settings":
         assert settings[i].displayString == "[]"
         assert settings[i].numMasterWindows == 2
 
+
+describe "Tag settings validation":
+
+  it "skips tag ids outside the valid range":
+    let toml = parseString """
+    [0]
+    displayString = "zero"
+
+    [10]
+    displayString = "ten"
+
+    [x]
+    displayString = "bad"
+
+    [3]
+    displayString = "three"
+    """
+    var settings = createDefaultTagSettings()
+    populateTagSettings(settings, toml.tableVal)
+    assert settings.len == tagCount
+    assert settings[3].displayString == "three"
+    assert settings[1].displayString == "1"
+
+  it "keeps a tag untouched when one of its values is invalid":
+    let toml = parseString """
+    [2]
+    displayString = "two"
+    numMasterWindows = "many"
+
+    [4]
+    numMasterWindows = 0
+
+    [5]
+    numMasterWindows = 3
+    """
+    var settings = createDefaultTagSettings()
+    populateTagSettings(settings, toml.tableVal)
+    assert settings[2].displayString == "2"
+    assert settings[4].numMasterWindows == 1
+    assert settings[5].numMasterWindows == 3

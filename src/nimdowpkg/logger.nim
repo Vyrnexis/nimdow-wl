@@ -10,8 +10,7 @@ var
   logger: RollingFileLogger
   enabled*: bool = false
 
-template log*(message: string, level: Level = lvlInfo) =
-  const module = instantiationInfo().filename[0 .. ^5]
+proc writeLog(module, message: string, level: Level) =
   let line = "[$# $#][$#]: $#" % [getDateStr(), getClockStr(), module, message]
   echo "$# $#" % [LevelNames[level], line]
 
@@ -26,5 +25,10 @@ template log*(message: string, level: Level = lvlInfo) =
 
     if logger != nil:
       logger.log(level, line)
-      logger.file.flushFile()
+      # Warnings and errors are flushed at once, so they survive a crash.
+      if level >= lvlWarn:
+        logger.file.flushFile()
 
+template log*(message: string, level: Level = lvlInfo) =
+  const module = instantiationInfo().filename[0 .. ^5]
+  writeLog(module, message, level)

@@ -4,14 +4,21 @@
 ## Lookup order for an icon name: the item's IconThemePath, the user's theme,
 ## its Inherits chain, hicolor, then the pixmaps directories. A name like
 ## "a-b-c" falls back to "a-b" and "a" when nothing was found. Results are
-## cached.
+## cached (failures only briefly).
 
 import
-  std/[os, strutils, tables, algorithm, sets]
+  std/[os, strutils, tables, algorithm, sets, monotimes, times]
 
 import
   ../wl/cairo,
   ../wl/rsvg
+
+const
+  ## Pixmaps larger than this (per side) are ignored, and at most this many are kept.
+  MaxPixmapSize* = 512
+  MaxPixmaps* = 8
+  ## How long a failed lookup is remembered (icons can be installed later).
+  MissTtl = initDuration(seconds = 30)
 
 type
   IconPixmap* = object
@@ -35,6 +42,10 @@ var
   themeName = ""
   themes: Table[string, Theme]
   lookupCache: Table[string, string]
+  ## Failed lookups (without an item theme path) and when they expire.
+  missCache: Table[string, MonoTime]
+  ## Theme directories sorted by distance to a size, per "theme|px".
+  sortedDirs: Table[string, seq[ThemeDir]]
   bases: seq[string]
 
 proc iconBaseDirs(): seq[string] =
@@ -80,6 +91,8 @@ proc setIconTheme*(configured: string) =
         break
   clear themes
   clear lookupCache
+  clear missCache
+  clear sortedDirs
 
 proc parseTheme(name: string): Theme =
   result = Theme(name: name)
@@ -160,12 +173,15 @@ proc findFlat(dir, name: string): string =
       return dir / name & ext
 
 proc findInTheme(theme: Theme, name: string, px: int, searchBases: seq[string]): string =
-  var dirs = theme.dirs
-  dirs.sort(proc(a, b: ThemeDir): int =
-    let c = cmp(distance(a, px), distance(b, px))
-    if c != 0: c else: cmp(ord(b.kind == dkScalable), ord(a.kind == dkScalable))
-  )
-  for dir in dirs:
+  let key = theme.name & "|" & $px
+  if key notin sortedDirs:
+    var dirs = theme.dirs
+    dirs.sort(proc(a, b: ThemeDir): int =
+      let c = cmp(distance(a, px), distance(b, px))
+      if c != 0: c else: cmp(ord(b.kind == dkScalable), ord(a.kind == dkScalable))
+    )
+    sortedDirs[key] = dirs
+  for dir in sortedDirs[key]:
     for base in searchBases:
       let found = findFlat(base / theme.name / dir.path, name)
       if found.len > 0:
@@ -204,6 +220,10 @@ proc findIconFile*(name, themePath: string, px: int): string =
   let key = name & "|" & $px & "|" & themePath
   if key in lookupCache:
     return lookupCache[key]
+  if key in missCache:
+    if getMonoTime() < missCache[key]:
+      return ""
+    missCache.del key
   var
     searchBases = iconBaseDirs()
     found = ""
@@ -228,7 +248,11 @@ proc findIconFile*(name, themePath: string, px: int): string =
     if dash <= 0:
       break
     candidate = candidate[0 ..< dash]
-  lookupCache[key] = found
+  if found.len > 0:
+    lookupCache[key] = found
+  elif themePath.len == 0:
+    # Not for items with a theme path: it may be filled in later.
+    missCache[key] = getMonoTime() + MissTtl
   return found
 
 # ---------------------------------------------------------------------------
@@ -290,7 +314,8 @@ proc choosePixmap*(pixmaps: seq[IconPixmap], px: int): int =
   ## largest one; -1 without usable pixmaps.
   result = -1
   for i, p in pixmaps:
-    if p.width <= 0 or p.height <= 0 or p.data.len < p.width * p.height * 4:
+    if p.width <= 0 or p.height <= 0 or p.width > MaxPixmapSize or p.height > MaxPixmapSize or
+        p.data.len < p.width * p.height * 4:
       continue
     if result == -1:
       result = i

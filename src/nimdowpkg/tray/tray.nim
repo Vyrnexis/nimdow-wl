@@ -24,7 +24,7 @@
 ## ItemsPropertiesUpdated signals with debounced refetches until `closeMenu`.
 
 import
-  std/[posix, tables, strutils, os]
+  std/[posix, tables, strutils]
 
 import
   ../dbus/sdbus,
@@ -43,6 +43,11 @@ const
   DefaultItemPath = "/StatusNotifierItem"
   PropertiesInterface = "org.freedesktop.DBus.Properties"
   DebounceMs = 50
+  ## A burst of New* signals delays the refetch at most this long.
+  MaxDebounceMs = 500
+  ## Retries of a failed first GetAll, and the wait between them.
+  FetchRetries = 2
+  RetryMs = 500
 
 type
   ItemStatus* = enum
@@ -65,6 +70,11 @@ type
     ## dbusmenu object path (for the menu popup).
     menu*: string
     refetchAt: int64
+    ## When the first signal of the pending refetch arrived.
+    pendingSince: int64
+    ## A GetAll is under way / failed attempts of the first fetch.
+    fetching: bool
+    attempts: int
     # Rendered icon cache.
     cache: CairoSurface
     cacheKey: string
@@ -79,6 +89,7 @@ type
     kind: RequestKind
     uid: int
     ifaceIndex: int
+    ## Member name, for logging failed actions.
     what: string
     ## Menu session the request belongs to, and the menu entry it is about.
     gen: int
@@ -116,10 +127,20 @@ type
     menu*: MenuSession
     ownsWatcher*: bool
     hostNameDone, watcherDone, hostNameOwned: bool
+    ## We already registered with / read the items of the other watcher.
+    followingWatcher: bool
     ## Hosts registered with our own watcher.
     hosts: seq[string]
 
 var gTray: Tray
+
+template cguard(errValue: untyped, body: untyped) =
+  ## For callbacks called from C: an exception must not unwind through sd-bus.
+  try:
+    body
+  except Exception:
+    log "tray: " & getCurrentExceptionMsg(), lvlError
+    return errValue
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -173,9 +194,6 @@ proc tooltipLines*(item: TrayItem): seq[string] =
     if line.len > 0:
       return @[line]
 
-proc toStr(s: cstring): string =
-  if s == nil: "" else: $s
-
 proc changed(t: Tray) =
   inc t.version
   if t.onChange != nil:
@@ -225,8 +243,7 @@ proc itemSpec(item: TrayItem): string = item.service & item.path
 
 proc findBySpec(t: Tray, service, path: string): TrayItem =
   for item in t.items:
-    if item.path == path and (item.service == service or item.owner == service or
-        (item.owner.len > 0 and item.owner == service)):
+    if item.path == path and (item.service == service or item.owner == service):
       return item
 
 proc freeCache(item: TrayItem) =
@@ -284,12 +301,14 @@ proc fetchItem(t: Tray, item: TrayItem, ifaceIndex: int) =
     if ifaceIndex == 0 and item.iface.len > 0: item.iface
     else: ItemInterfaces[ifaceIndex]
   let req = t.newRequest(Request(kind: rkItemProps, uid: item.uid, ifaceIndex: ifaceIndex))
+  item.fetching = true
   if sd_bus_call_method_async(
       t.bus, nil, item.service.cstring, item.path.cstring, PropertiesInterface,
       "GetAll", onReply, req, "s", iface.cstring) < 0:
     t.requests.del cast[int](req)
+    item.fetching = false
 
-proc addItem(t: Tray, service, path, sender: string) =
+proc addItem(t: Tray, service, path: string) =
   if service.len == 0 or t.bus == nil:
     return
   if t.findBySpec(service, path) != nil:
@@ -309,13 +328,13 @@ proc addSpec(t: Tray, spec, sender: string) =
   ## A registered item: "service/path", a bare service, or a path (the
   ## sender is then the service).
   if spec.startsWith("/"):
-    t.addItem(sender, spec, sender)
+    t.addItem(sender, spec)
   else:
     let slash = spec.find('/')
     if slash > 0:
-      t.addItem(spec[0 ..< slash], spec[slash .. ^1], sender)
+      t.addItem(spec[0 ..< slash], spec[slash .. ^1])
     else:
-      t.addItem(spec, DefaultItemPath, sender)
+      t.addItem(spec, DefaultItemPath)
 
 proc registerHost(t: Tray) =
   ## Makes the watcher (ours or somebody else's) know about our host.
@@ -354,6 +373,10 @@ proc watcherStatusKnown(t: Tray) =
   if t.ownsWatcher:
     log "tray: acting as StatusNotifierWatcher", lvlDebug
   else:
+    if t.followingWatcher:
+      # Both the RequestName reply and NameOwnerChanged can get us here.
+      return
+    t.followingWatcher = true
     log "tray: another StatusNotifierWatcher exists, acting as a host only", lvlDebug
     t.fetchWatcherItems()
   t.registerHost()
@@ -380,31 +403,22 @@ proc readPixmaps(m: SdBusMessage): seq[IconPixmap] =
         sd_bus_message_read_array(m, 'y', addr p, addr size) < 0:
       discard sd_bus_message_exit_container(m)
       break
-    var pixmap = IconPixmap(width: w, height: h)
-    if p != nil and size > 0 and size < 64'u * 1024 * 1024:
-      pixmap.data = newString(size.int)
-      copyMem(addr pixmap.data[0], p, size.int)
-    result.add pixmap
+    # Only sane pixmaps are kept (and not many): they are copied and kept alive.
+    if result.len < MaxPixmaps and w > 0 and h > 0 and w <= MaxPixmapSize and
+        h <= MaxPixmapSize and p != nil and size.int >= w.int * h.int * 4:
+      var pixmap = IconPixmap(width: w, height: h, data: newString(w.int * h.int * 4))
+      copyMem(addr pixmap.data[0], p, pixmap.data.len)
+      result.add pixmap
     discard sd_bus_message_exit_container(m)
   discard sd_bus_message_exit_container(m)
 
 proc parseItemProps(m: SdBusMessage, item: TrayItem): bool =
-  ## Applies a Properties.GetAll reply (a{sv}) to the item.
+  ## Parses a Properties.GetAll reply (a{sv}) into `item`, a scratch item
+  ## (properties not in the reply keep their defaults). The caller commits it
+  ## only when this returns true.
   if sd_bus_message_enter_container(m, 'a', "{sv}") <= 0:
     return false
-  # Properties not in the reply are back to their defaults.
-  item.id = ""
-  item.title = ""
-  item.tooltipTitle = ""
-  item.tooltipText = ""
   item.status = isActive
-  item.iconName = ""
-  item.attentionIconName = ""
-  item.themePath = ""
-  item.pixmaps = @[]
-  item.attentionPixmaps = @[]
-  item.isMenu = false
-  item.menu = ""
   var count = 0
   while sd_bus_message_enter_container(m, 'e', "sv") > 0:
     inc count
@@ -466,6 +480,31 @@ proc parseItemProps(m: SdBusMessage, item: TrayItem): bool =
   discard sd_bus_message_exit_container(m)
   return count > 0
 
+proc commitProps(item, fresh: TrayItem): tuple[changed, iconChanged: bool] =
+  ## Copies the parsed properties into the item; reports whether anything
+  ## visible changed, and whether the rendered icon must be redone. (Status
+  ## only matters to the icon through the attention icon, see `iconSurface`.)
+  result.iconChanged =
+    item.iconName != fresh.iconName or item.attentionIconName != fresh.attentionIconName or
+    item.themePath != fresh.themePath or item.pixmaps != fresh.pixmaps or
+    item.attentionPixmaps != fresh.attentionPixmaps
+  result.changed = result.iconChanged or not item.loaded or item.id != fresh.id or
+    item.title != fresh.title or item.tooltipTitle != fresh.tooltipTitle or
+    item.tooltipText != fresh.tooltipText or item.status != fresh.status or
+    item.isMenu != fresh.isMenu or item.menu != fresh.menu
+  item.id = fresh.id
+  item.title = fresh.title
+  item.tooltipTitle = fresh.tooltipTitle
+  item.tooltipText = fresh.tooltipText
+  item.status = fresh.status
+  item.iconName = fresh.iconName
+  item.attentionIconName = fresh.attentionIconName
+  item.themePath = fresh.themePath
+  item.pixmaps = fresh.pixmaps
+  item.attentionPixmaps = fresh.attentionPixmaps
+  item.isMenu = fresh.isMenu
+  item.menu = fresh.menu
+
 proc parseWatcherItems(t: Tray, m: SdBusMessage) =
   if sd_bus_message_enter_container(m, 'a', "{sv}") <= 0:
     return
@@ -499,26 +538,39 @@ proc onReply(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): cint {.cd
   let req = t.requests[id]
   t.requests.del id
   let failed = sd_bus_message_is_method_error(m, nil) != 0
-  try:
+  cguard 0:
     case req.kind
     of rkItemProps:
       let item = t.findItem(req.uid)
       if item == nil:
         return 0
-      if not failed and parseItemProps(m, item):
+      let fresh = TrayItem()
+      if not failed and parseItemProps(m, fresh):
+        item.fetching = false
+        item.attempts = 0
         item.iface = ItemInterfaces[req.ifaceIndex]
-        item.loaded = true
         let sender = toStr(sd_bus_message_get_sender(m))
         if sender.len > 0:
           item.owner = sender
-        item.freeCache()
-        t.changed()
+        let (somethingChanged, iconChanged) = item.commitProps(fresh)
+        item.loaded = true
+        if iconChanged:
+          item.freeCache()
+        if somethingChanged:
+          t.changed()
       elif req.ifaceIndex + 1 < ItemInterfaces.len and item.iface.len == 0:
         # Some items only implement the org.freedesktop name.
         t.fetchItem(item, req.ifaceIndex + 1)
-      elif not item.loaded:
-        log "tray: dropping item " & item.itemSpec & " (properties unavailable)", lvlDebug
-        t.removeItem(item)
+      else:
+        item.fetching = false
+        if not item.loaded:
+          if item.attempts < FetchRetries:
+            # The item may just not be ready yet.
+            inc item.attempts
+            item.refetchAt = nowMs() + RetryMs
+          else:
+            log "tray: dropping item " & item.itemSpec & " (properties unavailable)", lvlDebug
+            t.removeItem(item)
     of rkWatcherItems:
       if not failed:
         t.parseWatcherItems(m)
@@ -554,7 +606,7 @@ proc onReply(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): cint {.cd
       let menu = t.menu
       if menu == nil or menu.gen != req.gen:
         return 0
-      var layout: tuple[ok: bool, revision: uint32, root: MenuEntry]
+      var layout: tuple[ok: bool, root: MenuEntry]
       if not failed:
         layout = readLayout(m)
       if not layout.ok:
@@ -567,29 +619,35 @@ proc onReply(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): cint {.cd
         menu.loaded = true
         inc menu.version
         t.changed()
-  except CatchableError:
-    log "tray: " & getCurrentExceptionMsg(), lvlError
   return 0
 
 # ---------------------------------------------------------------------------
 # Signals
 # ---------------------------------------------------------------------------
 
+proc scheduleRefetch(item: TrayItem) =
+  ## Debounced: every signal of a burst pushes the refetch back, but by no
+  ## more than MaxDebounceMs after the first one.
+  let now = nowMs()
+  if item.refetchAt == 0:
+    item.pendingSince = now
+  item.refetchAt = min(now + DebounceMs, item.pendingSince + MaxDebounceMs)
+
 proc onItemSignal(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): cint {.cdecl.} =
   let t = gTray
   if t == nil:
     return 0
-  let
-    sender = toStr(sd_bus_message_get_sender(m))
-    path = toStr(sd_bus_message_get_path(m))
-    member = toStr(sd_bus_message_get_member(m))
-  if member notin ["NewIcon", "NewAttentionIcon", "NewStatus", "NewTitle", "NewToolTip",
-      "NewIconThemePath"]:
-    return 0
-  for item in t.items:
-    if item.loaded and item.owner == sender and item.path == path:
-      if item.refetchAt == 0:
-        item.refetchAt = nowMs() + DebounceMs
+  cguard 0:
+    let
+      sender = toStr(sd_bus_message_get_sender(m))
+      path = toStr(sd_bus_message_get_path(m))
+      member = toStr(sd_bus_message_get_member(m))
+    if member notin ["NewIcon", "NewAttentionIcon", "NewStatus", "NewTitle", "NewToolTip",
+        "NewIconThemePath"]:
+      return 0
+    for item in t.items:
+      if item.loaded and item.owner == sender and item.path == path:
+        item.scheduleRefetch()
   return 0
 
 proc onWatcherSignal(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): cint {.cdecl.} =
@@ -597,22 +655,23 @@ proc onWatcherSignal(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): c
   let t = gTray
   if t == nil or t.ownsWatcher or toStr(sd_bus_message_get_sender(m)) == t.uniqueName:
     return 0
-  let member = toStr(sd_bus_message_get_member(m))
-  var spec: cstring
-  case member
-  of "StatusNotifierItemRegistered":
-    if sd_bus_message_read(m, "s", addr spec) >= 0:
-      t.addSpec($spec, toStr(sd_bus_message_get_sender(m)))
-  of "StatusNotifierItemUnregistered":
-    if sd_bus_message_read(m, "s", addr spec) >= 0:
-      let s = $spec
-      let slash = s.find('/')
-      let (service, path) =
-        if slash > 0: (s[0 ..< slash], s[slash .. ^1]) else: (s, DefaultItemPath)
-      let item = t.findBySpec(service, path)
-      if item != nil:
-        t.removeItem(item)
-  else: discard
+  cguard 0:
+    let member = toStr(sd_bus_message_get_member(m))
+    var spec: cstring
+    case member
+    of "StatusNotifierItemRegistered":
+      if sd_bus_message_read(m, "s", addr spec) >= 0:
+        t.addSpec($spec, toStr(sd_bus_message_get_sender(m)))
+    of "StatusNotifierItemUnregistered":
+      if sd_bus_message_read(m, "s", addr spec) >= 0:
+        let s = $spec
+        let slash = s.find('/')
+        let (service, path) =
+          if slash > 0: (s[0 ..< slash], s[slash .. ^1]) else: (s, DefaultItemPath)
+        let item = t.findBySpec(service, path)
+        if item != nil:
+          t.removeItem(item)
+    else: discard
   return 0
 
 proc onNameOwnerChanged(m: SdBusMessage, userdata: pointer,
@@ -620,28 +679,32 @@ proc onNameOwnerChanged(m: SdBusMessage, userdata: pointer,
   let t = gTray
   if t == nil:
     return 0
-  var name, oldOwner, newOwner: cstring
-  if sd_bus_message_read(m, "sss", addr name, addr oldOwner, addr newOwner) < 0:
-    return 0
-  let (n, o, w) = ($name, $oldOwner, $newOwner)
-  if w.len == 0:
-    var gone: seq[TrayItem]
-    for item in t.items:
-      if item.service == n or (item.owner.len > 0 and (item.owner == n or item.owner == o)):
-        gone.add item
-    for item in gone:
-      t.removeItem(item)
-    let hostIndex = t.hosts.find(n)
-    if hostIndex >= 0:
-      t.hosts.delete hostIndex
-      t.emitProperty("IsStatusNotifierHostRegistered")
-    if n == WatcherName and not t.ownsWatcher:
-      # The other watcher is gone: take over.
-      t.watcherDone = false
-      t.requestName(WatcherName, DBUS_NAME_FLAG_DO_NOT_QUEUE, rkWatcherName)
-  elif n == WatcherName and not t.ownsWatcher and w != t.uniqueName:
-    # A (new) other watcher: register with it and read its items.
-    t.watcherStatusKnown()
+  cguard 0:
+    var name, oldOwner, newOwner: cstring
+    if sd_bus_message_read(m, "sss", addr name, addr oldOwner, addr newOwner) < 0:
+      return 0
+    let (n, o, w) = ($name, $oldOwner, $newOwner)
+    if n == WatcherName and o.len > 0:
+      # The previous owner is gone (maybe replaced directly by another one).
+      t.followingWatcher = false
+    if w.len == 0:
+      var gone: seq[TrayItem]
+      for item in t.items:
+        if item.service == n or (item.owner.len > 0 and (item.owner == n or item.owner == o)):
+          gone.add item
+      for item in gone:
+        t.removeItem(item)
+      let hostIndex = t.hosts.find(n)
+      if hostIndex >= 0:
+        t.hosts.delete hostIndex
+        t.emitProperty("IsStatusNotifierHostRegistered")
+      if n == WatcherName and not t.ownsWatcher:
+        # The other watcher is gone: take over.
+        t.watcherDone = false
+        t.requestName(WatcherName, DBUS_NAME_FLAG_DO_NOT_QUEUE, rkWatcherName)
+    elif n == WatcherName and not t.ownsWatcher and w != t.uniqueName:
+      # A (new) other watcher: register with it and read its items.
+      t.watcherStatusKnown()
   return 0
 
 # ---------------------------------------------------------------------------
@@ -650,51 +713,53 @@ proc onNameOwnerChanged(m: SdBusMessage, userdata: pointer,
 
 proc watcherRegisterItem(m: SdBusMessage, userdata: pointer,
     err: ptr SdBusError): cint {.exportc: "nimdow_watcher_register_item", cdecl.} =
-  var spec: cstring
-  if sd_bus_message_read(m, "s", addr spec) < 0:
-    return -22
-  discard sd_bus_reply_method_return(m, nil)
-  try:
+  cguard -1:
+    var spec: cstring
+    if sd_bus_message_read(m, "s", addr spec) < 0:
+      return -22
+    discard sd_bus_reply_method_return(m, nil)
     if gTray != nil:
       gTray.addSpec($spec, toStr(sd_bus_message_get_sender(m)))
-  except CatchableError:
-    discard
   return 1
 
 proc watcherRegisterHost(m: SdBusMessage, userdata: pointer,
     err: ptr SdBusError): cint {.exportc: "nimdow_watcher_register_host", cdecl.} =
-  var name: cstring
-  if sd_bus_message_read(m, "s", addr name) < 0:
-    return -22
-  discard sd_bus_reply_method_return(m, nil)
-  let t = gTray
-  if t != nil and $name notin t.hosts:
-    t.hosts.add $name
-    t.emitProperty("IsStatusNotifierHostRegistered")
-    t.emitWatcher("StatusNotifierHostRegistered")
+  cguard -1:
+    var name: cstring
+    if sd_bus_message_read(m, "s", addr name) < 0:
+      return -22
+    discard sd_bus_reply_method_return(m, nil)
+    let t = gTray
+    if t != nil and $name notin t.hosts:
+      t.hosts.add $name
+      t.emitProperty("IsStatusNotifierHostRegistered")
+      t.emitWatcher("StatusNotifierHostRegistered")
   return 1
 
 proc watcherPropItems(bus: SdBus, path, ifaceName, property: cstring, reply: SdBusMessage,
     userdata: pointer, err: ptr SdBusError): cint
     {.exportc: "nimdow_watcher_prop_items", cdecl.} =
-  var specs: seq[string]
-  if gTray != nil:
-    for item in gTray.items:
-      specs.add item.itemSpec
-  let arr = allocCStringArray(specs)
-  result = sd_bus_message_append_strv(reply, arr)
-  deallocCStringArray(arr)
+  cguard -1:
+    var specs: seq[string]
+    if gTray != nil:
+      for item in gTray.items:
+        specs.add item.itemSpec
+    let arr = allocCStringArray(specs)
+    result = sd_bus_message_append_strv(reply, arr)
+    deallocCStringArray(arr)
 
 proc watcherPropHost(bus: SdBus, path, ifaceName, property: cstring, reply: SdBusMessage,
     userdata: pointer, err: ptr SdBusError): cint
     {.exportc: "nimdow_watcher_prop_host", cdecl.} =
-  let registered: cint = if gTray != nil and gTray.hosts.len > 0: 1 else: 0
-  sd_bus_message_append(reply, "b", registered)
+  cguard -1:
+    let registered: cint = if gTray != nil and gTray.hosts.len > 0: 1 else: 0
+    result = sd_bus_message_append(reply, "b", registered)
 
 proc watcherPropVersion(bus: SdBus, path, ifaceName, property: cstring, reply: SdBusMessage,
     userdata: pointer, err: ptr SdBusError): cint
     {.exportc: "nimdow_watcher_prop_version", cdecl.} =
-  sd_bus_message_append(reply, "i", 0.cint)
+  cguard -1:
+    result = sd_bus_message_append(reply, "i", 0.cint)
 
 # ---------------------------------------------------------------------------
 # Public ifaceName
@@ -726,8 +791,12 @@ proc process*(t: Tray) =
   let now = nowMs()
   for item in t.items:
     if item.refetchAt > 0 and item.refetchAt <= now:
-      item.refetchAt = 0
-      t.fetchItem(item, 0)
+      if item.fetching:
+        # One GetAll at a time; look again shortly.
+        item.refetchAt = now + DebounceMs
+      else:
+        item.refetchAt = 0
+        t.fetchItem(item, 0)
   if t.menu != nil and t.menu.refetchAt > 0 and t.menu.refetchAt <= now:
     t.menu.refetchAt = 0
     t.fetchMenuLayout()
@@ -777,12 +846,12 @@ proc visibleItems*(t: Tray): seq[TrayItem] =
 proc iconSurface*(item: TrayItem, px: int): tuple[surface: CairoSurface, real: bool, desc: string] =
   ## The item's icon as a px*px surface (owned by the item; nil, real=false
   ## when there is none: the caller draws a placeholder).
-  let key = $px & "|" & $item.status
+  let attention = item.status == isNeedsAttention and
+    (item.attentionIconName.len > 0 or item.attentionPixmaps.len > 0)
+  let key = $px & "|" & $attention
   if item.cacheKey == key:
     return (item.cache, item.cacheReal, item.cacheDesc)
   item.freeCache()
-  let attention = item.status == isNeedsAttention and
-    (item.attentionIconName.len > 0 or item.attentionPixmaps.len > 0)
   let
     name = if attention: item.attentionIconName else: item.iconName
     pixmaps = if attention: item.attentionPixmaps else: item.pixmaps
@@ -809,22 +878,34 @@ proc iconSurface*(item: TrayItem, px: int): tuple[surface: CairoSurface, real: b
   item.cacheDesc = desc
   return (item.cache, item.cacheReal, item.cacheDesc)
 
-proc call(t: Tray, item: TrayItem, member, what: string, types: cstring, a: int = 0, b: int = 0,
-    s: cstring = nil) =
+proc itemIface(item: TrayItem): string =
+  if item.iface.len > 0: item.iface else: ItemInterfaces[0]
+
+proc callPosition(t: Tray, item: TrayItem, member: string, x, y: int) =
+  ## Activate, SecondaryActivate, ContextMenu: member(x, y).
   if t.bus == nil:
     return
-  let
-    iface = if item.iface.len > 0: item.iface else: ItemInterfaces[0]
-    req = t.newRequest(Request(kind: rkAction, what: what))
-  var r: cint
-  if types == "ii":
-    r = sd_bus_call_method_async(t.bus, nil, item.service.cstring, item.path.cstring,
-      iface.cstring, member.cstring, onReply, req, "ii", a.cint, b.cint)
-  else:
-    r = sd_bus_call_method_async(t.bus, nil, item.service.cstring, item.path.cstring,
-      iface.cstring, member.cstring, onReply, req, "is", a.cint, s)
-  if r < 0:
+  let req = t.newRequest(Request(kind: rkAction, what: member))
+  if sd_bus_call_method_async(t.bus, nil, item.service.cstring, item.path.cstring,
+      item.itemIface.cstring, member.cstring, onReply, req, "ii", x.cint, y.cint) < 0:
     t.requests.del cast[int](req)
+
+proc callScroll(t: Tray, item: TrayItem, delta: int) =
+  ## Scroll(delta, "vertical").
+  if t.bus == nil:
+    return
+  let req = t.newRequest(Request(kind: rkAction, what: "Scroll"))
+  if sd_bus_call_method_async(t.bus, nil, item.service.cstring, item.path.cstring,
+      item.itemIface.cstring, "Scroll", onReply, req, "is", delta.cint, "vertical".cstring) < 0:
+    t.requests.del cast[int](req)
+
+proc setTheme*(t: Tray, iconTheme: string) =
+  ## Applies a changed `trayIconTheme` (config reload): the icons are looked
+  ## up and rendered again.
+  setIconTheme(iconTheme)
+  for item in t.items:
+    item.freeCache()
+  t.changed()
 
 # ---------------------------------------------------------------------------
 # Context menus
@@ -833,10 +914,11 @@ proc call(t: Tray, item: TrayItem, member, what: string, types: cstring, a: int 
 proc onMenuSignal(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): cint {.cdecl.} =
   ## LayoutUpdated / ItemsPropertiesUpdated of the open menu: refetch.
   let t = gTray
-  if t == nil or t.menu == nil or t.menu.gen != cast[int](userdata):
-    return 0
-  if t.menu.refetchAt == 0:
-    t.menu.refetchAt = nowMs() + DebounceMs
+  cguard 0:
+    if t == nil or t.menu == nil or t.menu.gen != cast[int](userdata):
+      return 0
+    if t.menu.refetchAt == 0:
+      t.menu.refetchAt = nowMs() + DebounceMs
   return 0
 
 proc menuCall(t: Tray, session: MenuSession, id: int, event: string) =
@@ -934,15 +1016,15 @@ proc click*(t: Tray, uid, button, x, y: int) =
     if item.isMenu and item.menu.len > 0:
       t.toggleMenu(item, x, y)
     elif item.isMenu:
-      t.call(item, "ContextMenu", "ContextMenu", "ii", x, y)
+      t.callPosition(item, "ContextMenu", x, y)
     else:
-      t.call(item, "Activate", "Activate", "ii", x, y)
-  of 2: t.call(item, "SecondaryActivate", "SecondaryActivate", "ii", x, y)
+      t.callPosition(item, "Activate", x, y)
+  of 2: t.callPosition(item, "SecondaryActivate", x, y)
   of 3:
     if item.menu.len > 0:
       t.toggleMenu(item, x, y)
     else:
-      t.call(item, "ContextMenu", "ContextMenu", "ii", x, y)
-  of 4: t.call(item, "Scroll", "Scroll", "is", -1, s = "vertical")
-  of 5: t.call(item, "Scroll", "Scroll", "is", 1, s = "vertical")
+      t.callPosition(item, "ContextMenu", x, y)
+  of 4: t.callScroll(item, -1)
+  of 5: t.callScroll(item, 1)
   else: discard

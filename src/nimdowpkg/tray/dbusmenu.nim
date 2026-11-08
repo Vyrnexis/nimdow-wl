@@ -15,9 +15,9 @@ const
   MenuInterface* = "com.canonical.dbusmenu"
   ## Deepest submenu nesting that is parsed.
   MaxDepth = 8
-
-proc toStr(s: cstring): string =
-  if s == nil: "" else: $s
+  ## The only properties the popup uses; GetLayout is asked for just these.
+  LayoutProperties = ["type", "label", "enabled", "visible", "toggle-type", "toggle-state",
+    "children-display", "icon-name"]
 
 proc readBool(m: SdBusMessage, default: bool): bool =
   var b: cint
@@ -113,15 +113,15 @@ proc readEntry(m: SdBusMessage, depth: int): MenuEntry =
   discard sd_bus_message_exit_container(m)
   result.submenu = kindOfSubmenu or result.children.len > 0
 
-proc readLayout*(m: SdBusMessage): tuple[ok: bool, revision: uint32, root: MenuEntry] =
-  ## Parses a GetLayout reply `u(ia{sv}av)`.
+proc readLayout*(m: SdBusMessage): tuple[ok: bool, root: MenuEntry] =
+  ## Parses a GetLayout reply `u(ia{sv}av)` (the revision is not used).
   var revision: uint32
   if sd_bus_message_read(m, "u", addr revision) < 0:
     return
   let root = readEntry(m, 0)
   if root == nil:
     return
-  (true, revision, root)
+  (true, root)
 
 # ---------------------------------------------------------------------------
 # Calls (asynchronous: the reply goes to `callback` with `userdata`)
@@ -134,9 +134,14 @@ proc callAboutToShow*(bus: SdBus, service, path: string, id: int,
 
 proc callGetLayout*(bus: SdBus, service, path: string,
     callback: SdBusMessageHandler, userdata: pointer): bool =
-  ## GetLayout(parentId = 0, recursionDepth = -1, propertyNames = []).
+  ## GetLayout(parentId = 0, recursionDepth = -1, propertyNames = LayoutProperties).
+  ## (For an "as" argument sd-bus takes the item count, then the items.)
+  static: doAssert LayoutProperties.len == 8
   sd_bus_call_method_async(bus, nil, service.cstring, path.cstring, MenuInterface,
-    "GetLayout", callback, userdata, "iias", 0.cint, -1.cint, nil.pointer) >= 0
+    "GetLayout", callback, userdata, "iias", 0.cint, -1.cint, 8.cint,
+    LayoutProperties[0].cstring, LayoutProperties[1].cstring, LayoutProperties[2].cstring,
+    LayoutProperties[3].cstring, LayoutProperties[4].cstring, LayoutProperties[5].cstring,
+    LayoutProperties[6].cstring, LayoutProperties[7].cstring) >= 0
 
 proc callEvent*(bus: SdBus, service, path: string, id: int, eventId: string,
     timestamp: uint32, callback: SdBusMessageHandler, userdata: pointer): bool =

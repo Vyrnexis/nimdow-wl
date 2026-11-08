@@ -1,8 +1,8 @@
 ## Minimal hand-written bindings to cairo and pango(cairo): just what the
 ## status bar needs.
 
-{.passC: gorge("pkg-config --cflags cairo pangocairo").}
-{.passL: gorge("pkg-config --libs cairo pangocairo").}
+import ./pkgconfig
+pkgConfig "cairo pangocairo"
 
 type
   CairoObj = object
@@ -55,6 +55,7 @@ proc cairo_set_source_rgba*(cr: Cairo, r, g, b, a: cdouble) {.importc, cdecl.}
 proc cairo_set_operator*(cr: Cairo, op: cint) {.importc, cdecl.}
 proc cairo_rectangle*(cr: Cairo, x, y, w, h: cdouble) {.importc, cdecl.}
 proc cairo_fill*(cr: Cairo) {.importc, cdecl.}
+proc cairo_clip*(cr: Cairo) {.importc, cdecl.}
 proc cairo_paint*(cr: Cairo) {.importc, cdecl.}
 proc cairo_move_to*(cr: Cairo, x, y: cdouble) {.importc, cdecl.}
 proc cairo_line_to*(cr: Cairo, x, y: cdouble) {.importc, cdecl.}
@@ -73,8 +74,6 @@ proc pango_layout_set_font_description*(l: PangoLayout,
 proc pango_layout_set_width*(l: PangoLayout, width: cint) {.importc, cdecl.}
 proc pango_layout_set_ellipsize*(l: PangoLayout, mode: cint) {.importc, cdecl.}
 proc pango_layout_get_pixel_size*(l: PangoLayout, width, height: ptr cint) {.importc, cdecl.}
-proc pango_layout_get_pixel_extents*(l: PangoLayout,
-    ink, logical: ptr PangoRectangle) {.importc, cdecl.}
 proc pango_layout_get_extents*(l: PangoLayout,
     ink, logical: ptr PangoRectangle) {.importc, cdecl.}
 proc pango_layout_index_to_pos*(l: PangoLayout, index: cint,

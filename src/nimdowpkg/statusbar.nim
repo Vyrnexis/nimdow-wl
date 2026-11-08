@@ -20,7 +20,7 @@
 ## pointer is over a bar.
 
 import
-  std/[posix, unicode, strutils, tables, os, math]
+  std/[unicode, strutils, tables, os, math, sequtils]
 
 import
   point,
@@ -31,6 +31,7 @@ import
   wl/client as wlclient,
   wl/cairo,
   wl/cursor,
+  wl/shm,
   tray/tray,
   wl/protocols/[river_window_management_v1, viewporter, fractional_scale_v1]
 
@@ -47,6 +48,22 @@ const
   buttonScrollUp = 4
   buttonScrollDown = 5
   scrollThreshold = 10.0
+  ## wl_pointer.axis_value120 units of one wheel notch.
+  wheelNotch = 120
+  ## wl_pointer versions that send frame/axis_stop and axis_value120.
+  pointerFrameVersion = 5'u32
+  pointerValue120Version = 8'u32
+  seatVersion = 8'u32
+
+type
+  ## Owns a Pango font description.
+  FontDescObj = object
+    desc: PangoFontDescription
+  FontDesc = ref FontDescObj
+
+proc `=destroy`(f: var FontDescObj) =
+  if f.desc != nil:
+    pango_font_description_free(f.desc)
 
 type
   BarTag* = object
@@ -64,37 +81,65 @@ type
     ## `Tray.version` while this bar shows the tray, else -1.
     trayVersion: int
 
-  ShmBuffer = ref object
-    ctx: BarContext
-    buffer: WlBuffer
-    busy: bool
+  ## The fonts of a bar configuration: one description per configured font
+  ## (for explicit font selection) and one combining the families so Pango
+  ## falls back through them. Shared by the bars and the menu popups; the
+  ## descriptions are freed with the last reference.
+  FontSet* = ref object
+    names: seq[string]
+    fonts: seq[FontDesc]
+    all: FontDesc
+
+  TextInfo = object
+    valid: bool
+    width, height: int
+    ## x offset of each character from the start of the text.
+    characters: seq[int]
+
+  ## A piece of the status with the same colors and font.
+  Run = object
+    text: string
+    ## -1: default.
+    fg, bg, font: int
+    isSeparator: bool
+    ## Index of the first character (the unit separators count as one).
+    first: int
+    count: int
+    info: TextInfo
+
+  ParsedStatus = object
+    ## The status text this was parsed from.
+    source: string
+    valid: bool
+    runs: seq[Run]
+    ## Powerline glyphs without background, see `renderStringRightAligned`.
+    probe: string
+
+  ## Vertical extent of the colored status backgrounds.
+  BlockMetrics = object
+    valid: bool
+    probe: string
+    height, bufH: int
+    top, size: float
 
   StatusBar* = ref object
     ctx: BarContext
-    surface: WlSurface
+    scaled: ScaledSurface
     shell: RiverShellSurfaceV1
     node*: RiverNodeV1
-    viewport: WpViewport
-    fractional: WpFractionalScaleV1
-    ## The scale the compositor prefers for this surface (x120).
-    scale120: int
     settings: BarSettings
     tagSettings: TagSettings
     ## What should be shown, and what is shown right now.
     wanted, drawn: BarState
     configGen: int
-    fonts: seq[PangoFontDescription]
-    allFonts: PangoFontDescription
+    fonts: FontSet
     fontErrorLogged: bool
-    ## When >= 0, text layouts are ellipsized to this many logical pixels.
-    ellipsizeWidth: int
-    # Shared memory
-    mem: pointer
-    memSize: int
-    ## Buffer size in physical pixels.
-    bufW, bufH: int
-    buffers: array[2, ShmBuffer]
-    nextBuffer: int
+    pool: ShmPool
+    parsed: ParsedStatus
+    ## Text measurements are valid for this config generation and scale.
+    metricsGen, metricsScale: int
+    tagInfos: seq[TextInfo]
+    blockMetrics: BlockMetrics
     # Drawing context, only valid while drawing.
     cr: Cairo
     clickables: seq[tuple[start: int, stop: int, characters: seq[int]]]
@@ -144,7 +189,14 @@ type
     focus: StatusBar
     target: InputTarget
     x, y: int
+    version: uint32
+    ## Scroll state: accumulated pixel-like axis value, accumulated wheel
+    ## notches (x120), and what the current frame carries.
     axisAcc: float
+    wheelAcc: int
+    frameAxis: float
+    frameWheel: int
+    frameHasWheel: bool
 
   BarContext* = ref object
     compositor*: WlCompositor
@@ -162,21 +214,14 @@ type
     barLeave*: proc() {.closure.}
     # Pointer cursor
     cursorSurface: WlSurface
-    cursorTheme: WlCursorTheme
-    cursorScale: int
+    ## Loaded cursor themes by integer scale.
+    cursorThemes: Table[int, WlCursorTheme]
     pointers: seq[BarPointer]
-    ## A bar could not be drawn (no free buffer); a manage sequence is
-    ## requested when a buffer is released.
-    pendingFlush: bool
+    ## All bars, to find the one a pointer entered.
+    bars: seq[StatusBar]
+    fontCache: FontSet
     clicks*: seq[BarClick]
     requestManage*: proc() {.closure.}
-
-  RGB* = tuple[r, g, b: int]
-
-proc memfd_create(name: cstring, flags: cuint): cint
-  {.importc, header: "<sys/mman.h>".}
-
-const MFD_CLOEXEC = 1.cuint
 
 
 # ---------------------------------------------------------------------------
@@ -188,23 +233,22 @@ proc setCursor(p: BarPointer, serial: uint32, scale: int) =
   let ctx = p.ctx
   if ctx.cursorSurface == nil:
     ctx.cursorSurface = wl_compositor_create_surface(ctx.compositor)
-  if ctx.cursorTheme == nil or ctx.cursorScale != scale:
-    if ctx.cursorTheme != nil:
-      wl_cursor_theme_destroy(ctx.cursorTheme)
+  if scale notin ctx.cursorThemes:
+    # Loaded once per scale (nil when the theme cannot be loaded).
     let
       themeName = getEnv("XCURSOR_THEME")
       size = try: parseInt(getEnv("XCURSOR_SIZE", "24")) except ValueError: 24
-    ctx.cursorTheme = wl_cursor_theme_load(
+    ctx.cursorThemes[scale] = wl_cursor_theme_load(
       if themeName.len > 0: themeName.cstring else: nil,
       (max(size, 1) * scale).cint,
       ctx.shm
     )
-    ctx.cursorScale = scale
-  if ctx.cursorTheme == nil:
+  let theme = ctx.cursorThemes[scale]
+  if theme == nil:
     return
-  var cursor = wl_cursor_theme_get_cursor(ctx.cursorTheme, "default")
+  var cursor = wl_cursor_theme_get_cursor(theme, "default")
   if cursor == nil:
-    cursor = wl_cursor_theme_get_cursor(ctx.cursorTheme, "left_ptr")
+    cursor = wl_cursor_theme_get_cursor(theme, "left_ptr")
   if cursor == nil or cursor.imageCount == 0:
     return
   let
@@ -221,6 +265,15 @@ proc setCursor(p: BarPointer, serial: uint32, scale: int) =
     (image.hotspotX.int div scale).int32, (image.hotspotY.int div scale).int32
   )
 
+proc scale120*(this: StatusBar): int = this.scaled.scale120
+
+proc resetScroll(p: BarPointer) =
+  p.axisAcc = 0
+  p.wheelAcc = 0
+  p.frameAxis = 0
+  p.frameWheel = 0
+  p.frameHasWheel = false
+
 proc pointerEnter(data: pointer, obj: WlPointer, serial: uint32, surface: WlSurface,
     x, y: WlFixed) {.cdecl.} =
   let p = cast[BarPointer](data)
@@ -228,7 +281,7 @@ proc pointerEnter(data: pointer, obj: WlPointer, serial: uint32, surface: WlSurf
   p.target = nil
   p.x = wlFixedToFloat(x).int
   p.y = wlFixedToFloat(y).int
-  p.axisAcc = 0
+  p.resetScroll()
   if not surface.isNil:
     for target in p.ctx.targets:
       if target.surface == surface:
@@ -237,12 +290,13 @@ proc pointerEnter(data: pointer, obj: WlPointer, serial: uint32, surface: WlSurf
         if target.enter != nil:
           target.enter(p.x, p.y)
         return
-    let bar = wl_surface_get_user_data(surface)
-    if bar != nil:
-      p.focus = cast[StatusBar](bar)
-      p.setCursor(serial, max(1, (p.focus.scale120 + 119) div 120))
-      if p.ctx.barHover != nil:
-        p.ctx.barHover(p.focus, p.x, p.y)
+    for bar in p.ctx.bars:
+      if bar.scaled.surface == surface:
+        p.focus = bar
+        p.setCursor(serial, max(1, (bar.scale120 + 119) div 120))
+        if p.ctx.barHover != nil:
+          p.ctx.barHover(bar, p.x, p.y)
+        return
 
 proc pointerLeave(data: pointer, obj: WlPointer, serial: uint32,
     surface: WlSurface) {.cdecl.} =
@@ -288,18 +342,60 @@ proc pointerButton(data: pointer, obj: WlPointer, serial, time, button,
   if x11Button != 0:
     queueClick(cast[BarPointer](data), x11Button)
 
+proc scrollSteps(p: BarPointer) =
+  ## Queues the scroll clicks of what accumulated so far. Wheel notches
+  ## (axis_value120) count 120 per click; everything else (touchpads, wheels of
+  ## compositors without value120) is the accumulated axis value, a click per
+  ## `scrollThreshold`.
+  if p.frameHasWheel:
+    p.wheelAcc += p.frameWheel
+    while p.wheelAcc <= -wheelNotch:
+      p.wheelAcc += wheelNotch
+      queueClick(p, buttonScrollUp)
+    while p.wheelAcc >= wheelNotch:
+      p.wheelAcc -= wheelNotch
+      queueClick(p, buttonScrollDown)
+  else:
+    p.axisAcc += p.frameAxis
+    if p.axisAcc <= -scrollThreshold:
+      p.axisAcc = 0
+      queueClick(p, buttonScrollUp)
+    elif p.axisAcc >= scrollThreshold:
+      p.axisAcc = 0
+      queueClick(p, buttonScrollDown)
+  p.frameAxis = 0
+  p.frameWheel = 0
+  p.frameHasWheel = false
+
 proc pointerAxis(data: pointer, obj: WlPointer, time: uint32, axis: uint32,
     value: WlFixed) {.cdecl.} =
   if axis != WL_POINTER_AXIS_VERTICAL_SCROLL:
     return
   let p = cast[BarPointer](data)
-  p.axisAcc += wlFixedToFloat(value)
-  if p.axisAcc <= -scrollThreshold:
-    p.axisAcc = 0
-    queueClick(p, buttonScrollUp)
-  elif p.axisAcc >= scrollThreshold:
-    p.axisAcc = 0
-    queueClick(p, buttonScrollDown)
+  p.frameAxis += wlFixedToFloat(value)
+  if p.version < pointerFrameVersion:
+    # No frame events: handle every event on its own.
+    p.scrollSteps()
+
+proc pointerAxisValue120(data: pointer, obj: WlPointer, axis: uint32,
+    value120: int32) {.cdecl.} =
+  if axis != WL_POINTER_AXIS_VERTICAL_SCROLL:
+    return
+  let p = cast[BarPointer](data)
+  p.frameWheel += value120.int
+  p.frameHasWheel = true
+
+proc pointerAxisStop(data: pointer, obj: WlPointer, time: uint32, axis: uint32) {.cdecl.} =
+  ## The scroll gesture ended: what is left of it must not count toward the next.
+  if axis != WL_POINTER_AXIS_VERTICAL_SCROLL:
+    return
+  let p = cast[BarPointer](data)
+  p.axisAcc = 0
+  p.wheelAcc = 0
+
+proc pointerFrame(data: pointer, obj: WlPointer) {.cdecl.} =
+  let p = cast[BarPointer](data)
+  p.scrollSteps()
 
 var pointerListener = wl_pointer_noop_listener()
 pointerListener.enter = pointerEnter
@@ -307,6 +403,9 @@ pointerListener.leave = pointerLeave
 pointerListener.motion = pointerMotion
 pointerListener.button = pointerButton
 pointerListener.axis = pointerAxis
+pointerListener.axis_value120 = pointerAxisValue120
+pointerListener.axis_stop = pointerAxisStop
+pointerListener.frame = pointerFrame
 
 type SeatData = ref object
   ctx: BarContext
@@ -318,6 +417,7 @@ proc seatCapabilities(data: pointer, seat: WlSeat, caps: uint32) {.cdecl.} =
   let s = cast[SeatData](data)
   if (caps and WL_SEAT_CAPABILITY_POINTER) != 0 and s.pointer == nil:
     let p = BarPointer(ctx: s.ctx, obj: wl_seat_get_pointer(seat))
+    p.version = wl_proxy_get_version(cast[ptr WlProxy](p.obj))
     GC_ref p
     discard wl_pointer_add_listener(p.obj, addr pointerListener, cast[pointer](p))
     s.pointer = p
@@ -341,7 +441,7 @@ seatListener.capabilities = seatCapabilities
 proc bindSeat(ctx: BarContext, registry: Registry, global: Global) =
   let s = SeatData(ctx: ctx)
   GC_ref s
-  s.seat = bindGlobal[WlSeat](registry, global, wl_seat_interface, 5)
+  s.seat = bindGlobal[WlSeat](registry, global, wl_seat_interface, seatVersion)
   discard wl_seat_add_listener(s.seat, addr seatListener, cast[pointer](s))
 
 proc newBarContext*(registry: Registry, manager: RiverWindowManagerV1): BarContext =
@@ -423,23 +523,22 @@ proc toPangoString(font: string): string =
   let family = if families.len == 0: "monospace" else: families
   result = family & "," & style & " " & (if size.len == 0: "10" else: size)
 
-proc freeFonts(this: StatusBar) =
-  for desc in this.fonts:
-    pango_font_description_free(desc)
-  this.fonts.setLen 0
-  if this.allFonts != nil:
-    pango_font_description_free(this.allFonts)
-    this.allFonts = nil
+proc newFontDesc(spec: string): FontDesc =
+  FontDesc(desc: pango_font_description_from_string(spec.cstring))
 
-proc configureFonts(this: StatusBar) =
+proc allFonts*(fonts: FontSet): PangoFontDescription =
+  ## The description that falls back through all the configured families.
+  fonts.all.desc
+
+proc buildFontSet(names: seq[string]): FontSet =
   ## One description per configured font (for explicit font selection) and one
   ## combining all families so Pango falls back through them.
-  this.freeFonts()
+  result = FontSet(names: names)
   var
     families: seq[string]
     style, size: string
-  for font in this.settings.fonts:
-    this.fonts.add pango_font_description_from_string(toPangoString(font).cstring)
+  for font in names:
+    result.fonts.add newFontDesc(toPangoString(font))
     let parts = xftToPango(font)
     if parts.families.len > 0:
       families.add parts.families
@@ -452,100 +551,20 @@ proc configureFonts(this: StatusBar) =
   # default config's second font) makes Pango draw ASCII digits with its
   # keycap glyphs. Fontconfig's own fallback still finds emoji/icon glyphs.
   let combined = families[0] & "," & style & " " & (if size.len == 0: "10" else: size)
-  this.allFonts = pango_font_description_from_string(combined.cstring)
-  if this.fonts.len == 0:
-    this.fonts.add pango_font_description_from_string("monospace 10")
+  result.all = newFontDesc(combined)
+  if result.fonts.len == 0:
+    result.fonts.add newFontDesc("monospace 10")
 
-# ---------------------------------------------------------------------------
-# Shared memory buffers
-# ---------------------------------------------------------------------------
-
-proc bufferRelease(data: pointer, obj: WlBuffer) {.cdecl.} =
-  let buffer = cast[ShmBuffer](data)
-  buffer.busy = false
-  if buffer.ctx.pendingFlush:
-    buffer.ctx.pendingFlush = false
-    if buffer.ctx.requestManage != nil:
-      buffer.ctx.requestManage()
-
-var bufferListener = wl_buffer_noop_listener()
-bufferListener.release = bufferRelease
-
-proc freeBuffers(this: StatusBar) =
-  for i in 0 .. this.buffers.high:
-    if this.buffers[i] != nil:
-      wl_buffer_destroy(this.buffers[i].buffer)
-      GC_unref this.buffers[i]
-      this.buffers[i] = nil
-  if this.mem != nil:
-    discard munmap(this.mem, this.memSize)
-    this.mem = nil
-  this.bufW = 0
-  this.bufH = 0
-
-proc allocBuffers(this: StatusBar, width, height: int): bool =
-  this.freeBuffers()
-  let
-    stride = width * 4
-    size = stride * height * 2
-    fd = memfd_create("nimdow-bar", MFD_CLOEXEC)
-  if fd < 0:
-    log "memfd_create failed", lvlError
-    return false
-  if ftruncate(fd, size.Off) != 0:
-    discard close(fd)
-    log "ftruncate failed", lvlError
-    return false
-  let mem = mmap(nil, size, PROT_READ or PROT_WRITE, MAP_SHARED, fd, 0)
-  if mem == MAP_FAILED:
-    discard close(fd)
-    log "mmap failed", lvlError
-    return false
-  this.mem = mem
-  this.memSize = size
-  this.bufW = width
-  this.bufH = height
-  let pool = wl_shm_create_pool(this.ctx.shm, fd, size.int32)
-  for i in 0 .. this.buffers.high:
-    let buffer = ShmBuffer(ctx: this.ctx)
-    GC_ref buffer
-    buffer.buffer = wl_shm_pool_create_buffer(
-      pool, (i * stride * height).int32, width.int32, height.int32, stride.int32,
-      WL_SHM_FORMAT_ARGB8888
-    )
-    discard wl_buffer_add_listener(buffer.buffer, addr bufferListener, cast[pointer](buffer))
-    this.buffers[i] = buffer
-  wl_shm_pool_destroy(pool)
-  discard close(fd)
-  return true
+proc fontSetFor(ctx: BarContext, names: seq[string]): FontSet =
+  ## The font set of a configuration, built once and shared by all bars (and
+  ## the menu popups) using the same fonts.
+  if ctx.fontCache == nil or ctx.fontCache.names != names:
+    ctx.fontCache = buildFontSet(names)
+  ctx.fontCache
 
 # ---------------------------------------------------------------------------
 # Construction
 # ---------------------------------------------------------------------------
-
-proc scaleChanged(bar: StatusBar, scale120: int) =
-  if scale120 > 0 and scale120 != bar.scale120:
-    bar.scale120 = scale120
-    # Redrawn in the next manage sequence.
-    if bar.ctx.requestManage != nil:
-      bar.ctx.requestManage()
-
-proc fractionalPreferredScale(data: pointer, obj: WpFractionalScaleV1,
-    scale: uint32) {.cdecl.} =
-  cast[StatusBar](data).scaleChanged(scale.int)
-
-var fractionalListener = wp_fractional_scale_v1_noop_listener()
-fractionalListener.preferred_scale = fractionalPreferredScale
-
-proc surfacePreferredBufferScale(data: pointer, obj: WlSurface,
-    factor: int32) {.cdecl.} =
-  ## Integer scale; only used when fractional scale is unavailable.
-  let bar = cast[StatusBar](data)
-  if bar.fractional == nil:
-    bar.scaleChanged(factor.int * 120)
-
-var surfaceListener = wl_surface_noop_listener()
-surfaceListener.preferred_buffer_scale = surfacePreferredBufferScale
 
 proc newStatusBar*(
   ctx: BarContext,
@@ -553,26 +572,39 @@ proc newStatusBar*(
   tagSettings: TagSettings
 ): StatusBar =
   result = StatusBar(
-    ctx: ctx, settings: settings, tagSettings: tagSettings, ellipsizeWidth: -1
+    ctx: ctx, settings: settings, tagSettings: tagSettings,
+    metricsGen: -1, metricsScale: -1
   )
   result.wanted.trayVersion = -1
   result.drawn.trayVersion = -1
   GC_ref result
-  result.surface = wl_compositor_create_surface(ctx.compositor)
-  wl_surface_set_user_data(result.surface, cast[pointer](result))
-  result.scale120 = 120
-  discard wl_surface_add_listener(result.surface, addr surfaceListener, cast[pointer](result))
-  if ctx.fractionalManager != nil:
-    result.viewport = wp_viewporter_get_viewport(ctx.viewporter, result.surface)
-    result.fractional = wp_fractional_scale_manager_v1_get_fractional_scale(
-      ctx.fractionalManager, result.surface
-    )
-    discard wp_fractional_scale_v1_add_listener(
-      result.fractional, addr fractionalListener, cast[pointer](result)
-    )
-  result.shell = river_window_manager_v1_get_shell_surface(ctx.manager, result.surface)
+  let bar = result
+  result.scaled = newScaledSurface(
+    ctx.compositor, ctx.viewporter, ctx.fractionalManager, 120,
+    proc() =
+      # Redrawn in the next manage sequence.
+      if ctx.requestManage != nil:
+        ctx.requestManage()
+  )
+  result.pool = newShmPool(ctx.shm, "nimdow-bar", proc() =
+    if ctx.requestManage != nil:
+      ctx.requestManage()
+  )
+  result.shell = river_window_manager_v1_get_shell_surface(ctx.manager, result.scaled.surface)
   result.node = river_shell_surface_v1_get_node(result.shell)
-  result.configureFonts()
+  result.fonts = ctx.fontSetFor(settings.fonts)
+  ctx.bars.add bar
+
+proc destroy*(ctx: BarContext) =
+  ## Releases the cursor surface and themes. The bars must be destroyed first;
+  ## the context must not be used afterwards.
+  for theme in ctx.cursorThemes.values:
+    if theme != nil:
+      wl_cursor_theme_destroy(theme)
+  ctx.cursorThemes.clear()
+  if ctx.cursorSurface != nil:
+    wl_surface_destroy(ctx.cursorSurface)
+    ctx.cursorSurface = nil
 
 proc removeTarget*(ctx: BarContext, target: InputTarget) =
   ## Stops routing pointer events to the target (its surface is going away).
@@ -594,31 +626,28 @@ proc destroy*(this: StatusBar) =
       this.ctx.clicks.delete i
     else:
       inc i
-  this.freeBuffers()
-  this.freeFonts()
+  let index = this.ctx.bars.find(this)
+  if index >= 0:
+    this.ctx.bars.delete index
+  this.pool.destroy()
   river_node_v1_destroy(this.node)
   river_shell_surface_v1_destroy(this.shell)
-  if this.fractional != nil:
-    wp_fractional_scale_v1_destroy(this.fractional)
-    wp_viewport_destroy(this.viewport)
-  wl_surface_destroy(this.surface)
+  this.scaled.destroy()
   GC_unref this
 
 proc setConfig*(this: StatusBar, settings: BarSettings, tagSettings: TagSettings) =
   this.settings = settings
   this.tagSettings = tagSettings
-  this.configureFonts()
+  this.fonts = this.ctx.fontSetFor(settings.fonts)
   inc this.configGen
 
 proc height*(this: StatusBar): int = this.settings.height.int
 
 proc barSettings*(this: StatusBar): BarSettings = this.settings
 
-proc fontDescription*(this: StatusBar): PangoFontDescription =
-  ## The bar's font (owned by the bar).
-  this.allFonts
-
-proc scale120*(this: StatusBar): int = this.scale120
+proc fontSet*(this: StatusBar): FontSet =
+  ## The bar's fonts (shared; keep the reference to keep using them).
+  this.fonts
 
 proc origin*(this: StatusBar): tuple[x, y: int] = (this.originX, this.originY)
 
@@ -704,43 +733,37 @@ proc sanitize(s: string): string =
         result.add '?'
         inc i
 
-proc newLayout(this: StatusBar, text: string, desc: PangoFontDescription): PangoLayout =
+proc newLayout(this: StatusBar, text: string, desc: PangoFontDescription,
+    ellipsizeWidth = -1): PangoLayout =
+  ## `ellipsizeWidth` >= 0: the text is ellipsized to that many logical pixels.
   result = pango_cairo_create_layout(this.cr)
   pango_layout_set_font_description(result, desc)
   pango_layout_set_text(result, text.cstring, text.len.cint)
-  if this.ellipsizeWidth >= 0:
-    pango_layout_set_width(result, (this.ellipsizeWidth * PANGO_SCALE).cint)
+  if ellipsizeWidth >= 0:
+    pango_layout_set_width(result, (ellipsizeWidth * PANGO_SCALE).cint)
     pango_layout_set_ellipsize(result, PANGO_ELLIPSIZE_END)
 
-type TextInfo = object
-  width, height: int
-  ## x offset of each character from the start of the text.
-  characters: seq[int]
-
-proc measure(this: StatusBar, text: string, desc: PangoFontDescription): TextInfo =
-  let layout = this.newLayout(text, desc)
+proc measure(layout: PangoLayout, text: string): TextInfo =
+  ## Size of the laid out text and the x offset of each of its characters.
   var w, h: cint
   pango_layout_get_pixel_size(layout, addr w, addr h)
+  result.valid = true
   result.width = w
   result.height = h
+  result.characters = newSeqOfCap[int](text.len)
   var i = 0
   while i < text.len:
     var rect: PangoRectangle
     pango_layout_index_to_pos(layout, i.cint, addr rect)
     result.characters.add rect.x div PANGO_SCALE
     i += max(1, runeLenAt(text, i))
-  g_object_unref(layout)
 
-proc drawText(this: StatusBar, text: string, desc: PangoFontDescription, x: int,
-    color: Color) =
-  ## Draws text at x, vertically centered in the bar.
-  let layout = this.newLayout(text, desc)
-  var w, h: cint
-  pango_layout_get_pixel_size(layout, addr w, addr h)
+proc drawLayout(this: StatusBar, layout: PangoLayout, height, x: int, color: Color) =
+  ## Draws an already laid out text of the given height at x, vertically
+  ## centered in the bar.
   cairo_set_source_rgba(this.cr, color.r, color.g, color.b, color.a)
-  cairo_move_to(this.cr, x.cdouble, ((this.wanted.height - h) div 2).cdouble)
+  cairo_move_to(this.cr, x.cdouble, ((this.wanted.height - height) div 2).cdouble)
   pango_cairo_show_layout(this.cr, layout)
-  g_object_unref(layout)
 
 # Colors for ANSI CSI SGR coloration
 const
@@ -833,37 +856,23 @@ const
   finalByteRange = 0x40..0x7E
   unitSeparator = 0x1F
 
-type
-  Cell = object
-    text: string
-    ## -1: default.
-    fg, bg, font: int
-    isSeparator: bool
-
-  Run = object
-    text: string
-    fg, bg, font: int
-    isSeparator: bool
-    ## Index of the first cell.
-    first: int
-    count: int
-    info: TextInfo
-
 proc fontFor(this: StatusBar, index: int): PangoFontDescription =
   if index == -1:
-    return this.allFonts
-  if index > this.fonts.high:
+    return this.fonts.allFonts
+  if index > this.fonts.fonts.high:
     if not this.fontErrorLogged:
       log "Unable to select font " & $index &
         ", too few fonts defined in config.", lvlError
       this.fontErrorLogged = true
-    return this.allFonts
-  return this.fonts[index]
+    return this.fonts.allFonts
+  return this.fonts.fonts[index].desc
 
-proc parseStatus(this: StatusBar, str: string): seq[Cell] =
-  ## Splits the status into characters with their colors and fonts.
-  ## Supports ANSI CSI SGR colors and font selection, and the unit separator
-  ## which splits the status into clickable regions.
+proc parseStatus(this: StatusBar, str: string): ParsedStatus =
+  ## Splits the status into runs of the same colors and font. Supports ANSI CSI
+  ## SGR colors and font selection, and the unit separator which splits the
+  ## status into clickable regions.
+  result.valid = true
+  const maxParams = 32
   var
     color = -1
     bgColor = -1
@@ -871,20 +880,29 @@ proc parseStatus(this: StatusBar, str: string): seq[Cell] =
     parsingCsi = false
     parsingSgr = false
     invalidSgr = false
-    sgr: seq[int]
-    currentSgr: seq[Rune]
+    sgr: array[maxParams, int]
+    sgrLen = 0
+    ## The number being read: -1 none yet, -2 not a number.
+    param = -1
+    cell = 0
+    i = 0
 
-  template addSgr(): untyped =
-    if currentSgr.len == 0:
-      sgr.add 0
-    else:
-      try:
-        sgr.add parseInt($currentSgr)
-      except:
-        invalidSgr = true
-    reset currentSgr
+  template addSgr() =
+    if param == -1:
+      if sgrLen < maxParams:
+        sgr[sgrLen] = 0
+        inc sgrLen
+    elif param == -2:
+      invalidSgr = true
+    elif sgrLen < maxParams:
+      sgr[sgrLen] = param
+      inc sgrLen
+    param = -1
 
-  for rune in str.runes:
+  while i < str.len:
+    let start = i
+    var rune: Rune
+    fastRuneAt(str, i, rune, true)
     if rune.int32 == escape:
       parsingCsi = true
       parsingSgr = false
@@ -893,96 +911,151 @@ proc parseStatus(this: StatusBar, str: string): seq[Cell] =
     if parsingCsi:
       if parsingSgr:
         if rune.int32 != ord(';') and rune.int32 notin finalByteRange:
-          currentSgr.add rune
+          if param == -2 or rune.int32 < ord('0') or rune.int32 > ord('9'):
+            param = -2
+          else:
+            param = max(param, 0) * 10 + (rune.int32 - ord('0'))
+            if param > 100_000:
+              param = -2
         else:
           addSgr()
       if rune.int32 == ord('['):
         parsingSgr = true
-        reset sgr
+        sgrLen = 0
+        param = -1
         continue
     if not parsingCsi:
       if rune.int32 == unitSeparator:
-        result.add Cell(isSeparator: true)
+        result.runs.add Run(isSeparator: true, first: cell, count: 1)
+      elif result.runs.len > 0 and not result.runs[^1].isSeparator and
+          result.runs[^1].fg == color and result.runs[^1].bg == bgColor and
+          result.runs[^1].font == selectedFont:
+        result.runs[^1].text.add str[start ..< i]
+        inc result.runs[^1].count
       else:
-        result.add Cell(text: $rune, fg: color, bg: bgColor, font: selectedFont)
+        result.runs.add Run(
+          text: str[start ..< i], fg: color, bg: bgColor, font: selectedFont,
+          first: cell, count: 1
+        )
+      inc cell
     if parsingCsi:
       if rune.int32 in finalByteRange:
         parsingCsi = false
         if parsingSgr:
           if not invalidSgr:
-            var i = 0
-            while i < sgr.len:
-              if sgr[i] == resetCode:
+            var k = 0
+            while k < sgrLen:
+              if sgr[k] == resetCode:
                 color = -1
                 bgColor = -1
                 selectedFont = -1
                 this.fontErrorLogged = false
-              elif sgr[i] >= fontStart and sgr[i] <= fontStop:
-                selectedFont = sgr[i] - fontStart - 1
+              elif sgr[k] >= fontStart and sgr[k] <= fontStop:
+                selectedFont = sgr[k] - fontStart - 1
                 this.fontErrorLogged = false
-              elif sgr[i] >= fgColorStart and sgr[i] <= fgColorStop:
-                color = basicColors[sgr[i] - fgColorStart]
-              elif sgr[i] >= bgColorStart and sgr[i] <= bgColorStop:
-                bgColor = basicColors[sgr[i] - bgColorStart]
-              elif sgr[i] >= fgBrightColorStart and sgr[i] <= fgBrightColorStop:
-                color = brightColors[sgr[i] - fgBrightColorStart]
-              elif sgr[i] >= bgBrightColorStart and sgr[i] <= bgBrightColorStop:
-                bgColor = brightColors[sgr[i] - bgBrightColorStart]
-              elif sgr[i] == fgColorReset:
+              elif sgr[k] >= fgColorStart and sgr[k] <= fgColorStop:
+                color = basicColors[sgr[k] - fgColorStart]
+              elif sgr[k] >= bgColorStart and sgr[k] <= bgColorStop:
+                bgColor = basicColors[sgr[k] - bgColorStart]
+              elif sgr[k] >= fgBrightColorStart and sgr[k] <= fgBrightColorStop:
+                color = brightColors[sgr[k] - fgBrightColorStart]
+              elif sgr[k] >= bgBrightColorStart and sgr[k] <= bgBrightColorStop:
+                bgColor = brightColors[sgr[k] - bgBrightColorStart]
+              elif sgr[k] == fgColorReset:
                 color = -1
-              elif sgr[i] == bgColorReset:
+              elif sgr[k] == bgColorReset:
                 bgColor = -1
-              elif sgr.len > i + 2 and sgr[i] in {fgColorTable, bgColorTable} and
-                  sgr[i + 1] == eightBitColor:
-                let index = sgr[i + 2]
+              elif sgrLen > k + 2 and sgr[k] in {fgColorTable, bgColorTable} and
+                  sgr[k + 1] == eightBitColor:
+                let index = sgr[k + 2]
                 if index in extraColors.low .. extraColors.high:
-                  if sgr[i] == fgColorTable:
+                  if sgr[k] == fgColorTable:
                     color = extraColors[index]
                   else:
                     bgColor = extraColors[index]
-                i += 2
-              elif sgr.len > i + 4 and sgr[i] in {fgColorTable, bgColorTable} and
-                  sgr[i + 1] == twentyfourBitColor:
-                let rgb = ((sgr[i + 2] and 0xff) shl 16) or
-                  ((sgr[i + 3] and 0xff) shl 8) or (sgr[i + 4] and 0xff)
-                if sgr[i] == fgColorTable:
+                k += 2
+              elif sgrLen > k + 4 and sgr[k] in {fgColorTable, bgColorTable} and
+                  sgr[k + 1] == twentyfourBitColor:
+                let rgb = ((sgr[k + 2] and 0xff) shl 16) or
+                  ((sgr[k + 3] and 0xff) shl 8) or (sgr[k + 4] and 0xff)
+                if sgr[k] == fgColorTable:
                   color = rgb
                 else:
                   bgColor = rgb
-                i += 4
-              inc i
+                k += 4
+              inc k
+
+  # Powerline glyphs (U+E0A0..U+E0D7) without a background of their own.
+  for run in result.runs:
+    if run.bg == -1 and not run.isSeparator:
+      for rune in run.text.runes:
+        if rune.int32 in 0xE0A0'i32 .. 0xE0D7'i32 and $rune notin result.probe:
+          result.probe.add $rune
+
+proc blockMetricsFor(this: StatusBar, probe: string): BlockMetrics =
+  ## Vertical extent of the colored backgrounds, from the ink of `probe`.
+  ## Cached per config generation and scale (`checkMetrics`).
+  let cached = this.blockMetrics
+  if cached.valid and cached.probe == probe and cached.height == this.wanted.height and
+      cached.bufH == this.pool.height:
+    return cached
+  result = BlockMetrics(
+    valid: true, probe: probe, height: this.wanted.height, bufH: this.pool.height
+  )
+  let layout = this.newLayout(probe, this.fonts.allFonts)
+  var
+    ink, logical: PangoRectangle
+    pixelW, logicalH: cint
+  pango_layout_get_extents(layout, addr ink, addr logical)
+  pango_layout_get_pixel_size(layout, addr pixelW, addr logicalH)
+  g_object_unref(layout)
+  if ink.height > 0:
+    let
+      # Same vertical position as drawLayout uses.
+      textTop = ((this.wanted.height - logicalH) div 2).float
+      top = textTop + ink.y.float / PANGO_SCALE
+      bottom = top + ink.height.float / PANGO_SCALE
+      sy = if this.wanted.height > 0: this.pool.height.float / this.wanted.height.float
+        else: 1.0
+      snappedTop = max(0.0, floor(top * sy) / sy)
+      snappedBottom = min(this.wanted.height.float, ceil(bottom * sy) / sy)
+    result.top = snappedTop
+    result.size = snappedBottom - snappedTop
+  this.blockMetrics = result
+
+proc checkMetrics(this: StatusBar) =
+  ## Drops the cached measurements when the config or the scale changed.
+  if this.metricsGen == this.wanted.configGen and this.metricsScale == this.wanted.scale120:
+    return
+  this.metricsGen = this.wanted.configGen
+  this.metricsScale = this.wanted.scale120
+  this.tagInfos.setLen 0
+  this.blockMetrics.valid = false
+  for run in this.parsed.runs.mitems:
+    run.info.valid = false
 
 proc renderStringRightAligned(
   this: StatusBar,
-  s: string,
   defaultColor: Color,
-  x: int,
+  x, minX: int,
   leftPadding: Natural = 0
 ): int {.discardable.} =
-  ## Renders a string right aligned to position x and records its clickable
-  ## regions. The first `leftPadding` characters are not clickable.
-  ## Returns the x position where the string starts.
-  let cells = this.parseStatus(if leftPadding > 0: ' '.repeat(leftPadding) & s else: s)
+  ## Renders the parsed status right aligned to position x and records its
+  ## clickable regions. The first `leftPadding` characters are not clickable.
+  ## Nothing is drawn (or clickable) left of `minX`: a status that is too wide
+  ## loses its start. Returns the x position where the string starts.
 
-  # Group characters into runs of the same color and font.
+  # Lay out each run once; the same layouts are drawn below.
   var
-    runs: seq[Run]
+    layouts = newSeq[PangoLayout](this.parsed.runs.len)
     stringWidth = 0
-  for pos, cell in cells:
-    if cell.isSeparator:
-      runs.add Run(isSeparator: true, first: pos, count: 1)
-    elif runs.len > 0 and not runs[^1].isSeparator and runs[^1].fg == cell.fg and
-        runs[^1].bg == cell.bg and runs[^1].font == cell.font:
-      runs[^1].text.add cell.text
-      inc runs[^1].count
-    else:
-      runs.add Run(
-        text: cell.text, fg: cell.fg, bg: cell.bg, font: cell.font, first: pos, count: 1
-      )
-  for run in runs.mitems:
-    if not run.isSeparator:
-      run.info = this.measure(run.text, this.fontFor(run.font))
-      stringWidth += run.info.width
+  for i, run in this.parsed.runs.mpairs:
+    if run.isSeparator:
+      continue
+    layouts[i] = this.newLayout(run.text, this.fontFor(run.font))
+    if not run.info.valid:
+      run.info = measure(layouts[i], run.text)
+    stringWidth += run.info.width
 
   # Colored backgrounds are drawn as a block lined up with the glyphs used
   # for block style statusbars. When the status uses Powerline separators
@@ -993,34 +1066,18 @@ proc renderStringRightAligned(
   # The block is snapped outwards to whole physical pixels: at fractional
   # scales rounding it in logical units can leave the top or bottom pixel row
   # of a segment unpainted.
-  var probe = ""
-  for run in runs:
-    if run.bg == -1 and not run.isSeparator:
-      for rune in run.text.runes:
-        if rune.int32 in 0xE0A0'i32 .. 0xE0D7'i32 and $rune notin probe:
-          probe.add $rune
-  if probe.len == 0:
-    probe = "█"
-  var blockTop, blockHeight = 0.0
-  block findBlock:
-    let layout = this.newLayout(probe, this.allFonts)
-    var
-      ink, logical: PangoRectangle
-      pixelW, logicalH: cint
-    pango_layout_get_extents(layout, addr ink, addr logical)
-    pango_layout_get_pixel_size(layout, addr pixelW, addr logicalH)
-    g_object_unref(layout)
-    if ink.height > 0:
-      let
-        # Same vertical position as drawText uses.
-        textTop = ((this.wanted.height - logicalH) div 2).float
-        top = textTop + ink.y.float / PANGO_SCALE
-        bottom = top + ink.height.float / PANGO_SCALE
-        sy = if this.wanted.height > 0: this.bufH.float / this.wanted.height.float else: 1.0
-        snappedTop = max(0.0, floor(top * sy) / sy)
-        snappedBottom = min(this.wanted.height.float, ceil(bottom * sy) / sy)
-      blockTop = snappedTop
-      blockHeight = snappedBottom - snappedTop
+  let metrics = this.blockMetricsFor(if this.parsed.probe.len == 0: "█" else: this.parsed.probe)
+  let
+    blockTop = metrics.top
+    blockHeight = metrics.size
+    firstRegion = this.clickables.len
+    overflow = stringWidth > x - minX
+
+  if overflow:
+    cairo_save(this.cr)
+    cairo_rectangle(this.cr, minX.cdouble, 0, max(0, x - minX).cdouble,
+      this.wanted.height.cdouble)
+    cairo_clip(this.cr)
 
   result = x - stringWidth
   var
@@ -1028,7 +1085,7 @@ proc renderStringRightAligned(
     last = xLoc
     current = xLoc
     characters: seq[int]
-  for run in runs:
+  for i, run in this.parsed.runs:
     if run.isSeparator:
       this.clickables.add (start: last, stop: current, characters: characters)
       last = current
@@ -1044,12 +1101,11 @@ proc renderStringRightAligned(
         cairo_rectangle(this.cr, xLoc.cdouble, blockTop, run.info.width.cdouble, blockHeight)
         cairo_fill(this.cr)
         cairo_set_operator(this.cr, CAIRO_OPERATOR_OVER)
-    this.drawText(
-      run.text,
-      this.fontFor(run.font),
-      xLoc,
+    this.drawLayout(
+      layouts[i], run.info.height, xLoc,
       if run.fg == -1: defaultColor else: toColor(run.fg)
     )
+    g_object_unref(layouts[i])
     for k in 0 ..< run.count:
       let
         cellStart = xLoc + run.info.characters[k]
@@ -1065,15 +1121,20 @@ proc renderStringRightAligned(
     current = xLoc
   this.clickables.add (start: last, stop: current, characters: characters)
 
-proc renderString(
-  this: StatusBar,
-  str: string,
-  color: Color,
-  startX: int
-): TextInfo =
-  ## Renders a string at position x.
-  result = this.measure(str, this.allFonts)
-  this.drawText(str, this.allFonts, startX, color)
+  if overflow:
+    cairo_restore(this.cr)
+    # Clip the click regions the same way: starts and stops stay in order, the
+    # character offsets (relative to the start) shrink with the cut part.
+    for i in firstRegion ..< this.clickables.len:
+      let
+        region = this.clickables[i]
+        start = max(region.start, minX)
+        cut = start - region.start
+      this.clickables[i] = (
+        start: start, stop: max(region.stop, start),
+        characters: region.characters.mapIt(max(0, it - cut))
+      )
+    result = minX
 
 proc renderTags(this: StatusBar): int =
   # Tag rendering layout is as follows:
@@ -1099,9 +1160,13 @@ proc renderTags(this: StatusBar): int =
     elif not state.empty:
       fgColor = toColor(this.settings.hasWindowsColor)
 
-    let
-      text = sanitize(tagSetting.displayString)
-      info = this.measure(text, this.allFonts)
+    let text = sanitize(tagSetting.displayString)
+    let layout = this.newLayout(text, this.fonts.allFonts)
+    if this.tagInfos.len < i:
+      this.tagInfos.setLen i
+    if not this.tagInfos[i - 1].valid:
+      this.tagInfos[i - 1] = measure(layout, text)
+    let info = this.tagInfos[i - 1]
 
     if not state.empty:
       let boxXLoc = textXPos - pad div 2
@@ -1114,7 +1179,8 @@ proc renderTags(this: StatusBar): int =
         if not state.hasCurrent:
           this.fillRect(if state.urgent: urgent else: bg, boxXLoc + 1, 1, 2, 2, true)
 
-    this.drawText(text, this.allFonts, textXPos, fgColor)
+    this.drawLayout(layout, info.height, textXPos, fgColor)
+    g_object_unref(layout)
     this.clickables.add (
       start: textXPos - pad,
       stop: textXPos + info.width + pad,
@@ -1159,7 +1225,7 @@ proc renderTray(this: StatusBar): int =
       this.fillRect((fg.r, fg.g, fg.b, 0.35), x, y, size, size)
       if label.len > 0:
         let letter = sanitize($label.runeAt(0)).toUpper()
-        let layout = this.newLayout(letter, this.allFonts)
+        let layout = this.newLayout(letter, this.fonts.allFonts)
         var w, h: cint
         pango_layout_get_pixel_size(layout, addr w, addr h)
         cairo_set_source_rgba(this.cr, fg.r, fg.g, fg.b, fg.a)
@@ -1171,15 +1237,18 @@ proc renderTray(this: StatusBar): int =
     )
     x += size + spacing
 
-proc renderStatus(this: StatusBar, rightEdge: int): int =
+proc renderStatus(this: StatusBar, rightEdge, minX: int): int =
   ## Returns the x position where the status starts.
   result = rightEdge
   if this.wanted.status.len > 0:
+    # Two non-clickable padding characters in front of the status.
+    const padding = 2
+    if not this.parsed.valid or this.parsed.source != this.wanted.status:
+      # Parsed once per status text, not on every redraw.
+      this.parsed = this.parseStatus(' '.repeat(padding) & sanitize(this.wanted.status))
+      this.parsed.source = this.wanted.status
     result = this.renderStringRightAligned(
-      sanitize(this.wanted.status),
-      toColor(this.settings.fgColor),
-      rightEdge,
-      2
+      toColor(this.settings.fgColor), rightEdge, minX, padding
     )
 
 proc renderActiveWindowTitle(this: StatusBar, minRenderX, maxRenderX: int) =
@@ -1191,28 +1260,35 @@ proc renderActiveWindowTitle(this: StatusBar, minRenderX, maxRenderX: int) =
     this.clickables.add (start: minRenderX, stop: minRenderX, characters: @[])
     return
 
-  let textColor =
-    if this.wanted.monitorSelected: toColor(this.settings.selectionColor)
-    else: toColor(this.settings.fgColor)
-
-  this.ellipsizeWidth = available
-  defer: this.ellipsizeWidth = -1
+  let
+    textColor =
+      if this.wanted.monitorSelected: toColor(this.settings.selectionColor)
+      else: toColor(this.settings.fgColor)
+    desc = this.fonts.allFonts
+  # One layout is measured and drawn.
   case this.settings.windowTitlePosition
   of wtpLeft:
-    let info = this.renderString(title, textColor, minRenderX)
+    let
+      layout = this.newLayout(title, desc, available)
+      info = measure(layout, title)
+    this.drawLayout(layout, info.height, minRenderX, textColor)
+    g_object_unref(layout)
     this.clickables.add (
       start: minRenderX, stop: minRenderX + info.width, characters: info.characters
     )
   of wtpCenter:
-    this.ellipsizeWidth = -1
-    var info = this.measure(title, this.allFonts)
+    let layout = this.newLayout(title, desc)
+    var info = measure(layout, title)
     var pos = max(minRenderX, this.wanted.width div 2 - info.width div 2)
     if pos + info.width > maxRenderX:
       # Does not fit centered: shift left, then clip.
       pos = max(minRenderX, maxRenderX - info.width)
-    this.ellipsizeWidth = maxRenderX - pos
-    info = this.measure(title, this.allFonts)
-    this.drawText(title, this.allFonts, pos, textColor)
+    if info.width > maxRenderX - pos:
+      pango_layout_set_width(layout, ((maxRenderX - pos) * PANGO_SCALE).cint)
+      pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END)
+      info = measure(layout, title)
+    this.drawLayout(layout, info.height, pos, textColor)
+    g_object_unref(layout)
     this.clickables.add (start: pos, stop: pos + info.width, characters: info.characters)
 
 proc draw(this: StatusBar, data: pointer) =
@@ -1221,8 +1297,8 @@ proc draw(this: StatusBar, data: pointer) =
     width = this.wanted.width
     height = this.wanted.height
     # The buffer is in physical pixels, drawing is in logical units.
-    pixelWidth = this.bufW
-    pixelHeight = this.bufH
+    pixelWidth = this.pool.width
+    pixelHeight = this.pool.height
     surface = cairo_image_surface_create_for_data(
       data, CAIRO_FORMAT_ARGB32, pixelWidth.cint, pixelHeight.cint,
       (pixelWidth * 4).cint
@@ -1232,6 +1308,7 @@ proc draw(this: StatusBar, data: pointer) =
   )
   this.cr = cairo_create(surface)
   reset this.clickables
+  this.checkMetrics()
 
   # Background, including its transparency.
   let bg = toColor(this.settings.bgColor, this.settings.transparency)
@@ -1242,7 +1319,7 @@ proc draw(this: StatusBar, data: pointer) =
   # ordered tags, title, status.
   let tagRegions = this.clickables.len
   let trayLeft = this.renderTray()
-  let statusLeft = this.renderStatus(trayLeft)
+  let statusLeft = this.renderStatus(trayLeft, tagLengthPixels)
   let statusRegions = this.clickables[tagRegions .. ^1]
   this.clickables.setLen tagRegions
   this.renderActiveWindowTitle(tagLengthPixels, statusLeft - boxWidth * 2)
@@ -1303,8 +1380,8 @@ proc flush*(this: StatusBar, x, y, width: int, visible: bool) =
     if this.drawn.visible:
       # Unmap the bar.
       river_shell_surface_v1_sync_next_commit(this.shell)
-      wl_surface_attach(this.surface, nil, 0, 0)
-      wl_surface_commit(this.surface)
+      wl_surface_attach(this.scaled.surface, nil, 0, 0)
+      wl_surface_commit(this.scaled.surface)
     this.drawn = this.wanted
     return
 
@@ -1312,37 +1389,18 @@ proc flush*(this: StatusBar, x, y, width: int, visible: bool) =
     return
 
   let
-    pixelWidth = (width * this.scale120 + 60) div 120
-    pixelHeight = (this.wanted.height * this.scale120 + 60) div 120
-  if this.bufW != pixelWidth or this.bufH != pixelHeight or this.mem == nil:
-    if not this.allocBuffers(pixelWidth, pixelHeight):
-      return
-
-  var index = -1
-  for offset in 0 .. this.buffers.high:
-    let candidate = (this.nextBuffer + offset) mod this.buffers.len
-    if not this.buffers[candidate].busy:
-      index = candidate
-      break
-  if index == -1:
-    # Both buffers are still held by the compositor; try again once one is released.
-    this.ctx.pendingFlush = true
+    pixelWidth = this.scaled.physical(width)
+    pixelHeight = this.scaled.physical(this.wanted.height)
+  if not this.pool.resize(pixelWidth, pixelHeight):
+    # Retried (not before a short backoff) by the next flush.
     return
-
-  this.nextBuffer = (index + 1) mod this.buffers.len
-  let stride = pixelWidth * 4
-  this.draw(cast[pointer](cast[int](this.mem) + index * stride * pixelHeight))
-
-  if this.viewport != nil:
-    # Physical size buffer shown at the logical size.
-    wl_surface_set_buffer_scale(this.surface, 1)
-    wp_viewport_set_destination(this.viewport, width.int32, this.wanted.height.int32)
-  else:
-    wl_surface_set_buffer_scale(this.surface, (this.scale120 div 120).int32)
-
+  let index = this.pool.acquire()
+  if index == -1:
+    # Both buffers are still held by the compositor; the pool asks for a new
+    # manage sequence once one is released.
+    return
+  this.draw(this.pool.data(index))
+  this.scaled.prepare(width, this.wanted.height)
   river_shell_surface_v1_sync_next_commit(this.shell)
-  wl_surface_attach(this.surface, this.buffers[index].buffer, 0, 0)
-  wl_surface_damage_buffer(this.surface, 0, 0, pixelWidth.int32, pixelHeight.int32)
-  wl_surface_commit(this.surface)
-  this.buffers[index].busy = true
+  this.pool.present(index, this.scaled.surface)
   this.drawn = this.wanted

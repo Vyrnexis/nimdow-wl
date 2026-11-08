@@ -1,9 +1,8 @@
 ## Minimal bindings to libwayland-cursor (loading Xcursor themes into wl_shm).
 
-import ./protocols/wayland
+import ./protocols/wayland, ./pkgconfig
 
-{.passC: gorge("pkg-config --cflags wayland-cursor").}
-{.passL: gorge("pkg-config --libs wayland-cursor").}
+pkgConfig "wayland-cursor"
 
 type
   WlCursorThemeObj = object

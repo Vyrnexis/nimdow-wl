@@ -4,9 +4,6 @@
 import ./protocols/wayland
 export wayland
 
-{.passC: gorge("pkg-config --cflags wayland-client xkbcommon").}
-{.passL: gorge("pkg-config --libs wayland-client xkbcommon").}
-
 type
   Global* = object
     name*: uint32

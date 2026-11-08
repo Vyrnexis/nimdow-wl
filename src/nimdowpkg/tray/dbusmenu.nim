@@ -135,10 +135,13 @@ proc callAboutToShow*(bus: SdBus, service, path: string, id: int,
 proc callGetLayout*(bus: SdBus, service, path: string,
     callback: SdBusMessageHandler, userdata: pointer): bool =
   ## GetLayout(parentId = 0, recursionDepth = -1, propertyNames = LayoutProperties).
-  let names = allocCStringArray(LayoutProperties)
-  defer: deallocCStringArray(names)
+  ## (For an "as" argument sd-bus takes the item count, then the items.)
+  static: doAssert LayoutProperties.len == 8
   sd_bus_call_method_async(bus, nil, service.cstring, path.cstring, MenuInterface,
-    "GetLayout", callback, userdata, "iias", 0.cint, -1.cint, names) >= 0
+    "GetLayout", callback, userdata, "iias", 0.cint, -1.cint, 8.cint,
+    LayoutProperties[0].cstring, LayoutProperties[1].cstring, LayoutProperties[2].cstring,
+    LayoutProperties[3].cstring, LayoutProperties[4].cstring, LayoutProperties[5].cstring,
+    LayoutProperties[6].cstring, LayoutProperties[7].cstring) >= 0
 
 proc callEvent*(bus: SdBus, service, path: string, id: int, eventId: string,
     timestamp: uint32, callback: SdBusMessageHandler, userdata: pointer): bool =

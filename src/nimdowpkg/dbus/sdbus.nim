@@ -25,6 +25,10 @@ const
   ## Flags of org.freedesktop.DBus.RequestName.
   DBUS_NAME_FLAG_DO_NOT_QUEUE* = 4'u32
 
+proc toStr*(s: cstring): string =
+  ## "" for a NULL string.
+  if s == nil: "" else: $s
+
 # --- connection ---
 
 proc sd_bus_open_user*(bus: ptr SdBus): cint {.importc, cdecl.}
@@ -61,7 +65,6 @@ proc sd_bus_reply_method_return*(call: SdBusMessage, types: cstring): cint
 proc sd_bus_message_get_sender*(m: SdBusMessage): cstring {.importc, cdecl.}
 proc sd_bus_message_get_path*(m: SdBusMessage): cstring {.importc, cdecl.}
 proc sd_bus_message_get_member*(m: SdBusMessage): cstring {.importc, cdecl.}
-proc sd_bus_message_get_errno*(m: SdBusMessage): cint {.importc, cdecl.}
 proc sd_bus_message_is_method_error*(m: SdBusMessage, name: cstring): cint
   {.importc, cdecl.}
 proc sd_bus_message_append*(m: SdBusMessage, types: cstring): cint
@@ -78,7 +81,6 @@ proc sd_bus_message_peek_type*(m: SdBusMessage, kind: ptr char,
 proc sd_bus_message_enter_container*(m: SdBusMessage, kind: char,
     contents: cstring): cint {.importc, cdecl.}
 proc sd_bus_message_exit_container*(m: SdBusMessage): cint {.importc, cdecl.}
-proc sd_bus_message_at_end*(m: SdBusMessage, complete: cint): cint {.importc, cdecl.}
 
 # --- the watcher object (see watcher_vtable.c) ---
 

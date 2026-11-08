@@ -14,9 +14,9 @@ import
   nimdowpkg/ipc/cli,
   nimdowpkg/ipc/ipc,
   nimdowpkg/wmcommands,
-  nimdowpkg/spawn,
-  nimdowpkg/session,
-  nimdowpkg/logger
+  nimdowpkg/sys/spawn,
+  nimdowpkg/sys/session,
+  nimdowpkg/sys/logger
 
 proc handleCommand(str: string, windowmanager: WindowManager) =
   ## Runs the action for an IPC message: `nimdow-ipc <command> [argument]`.

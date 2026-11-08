@@ -1,7 +1,7 @@
 import
   nimtest,
   tables,
-  keys/keyutils
+  config/keys
 
 describe "Key names":
 

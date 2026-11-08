@@ -2,11 +2,11 @@
 ## from `GetLayout` replies, and the (asynchronous) calls the popup needs.
 ##
 ## This module only knows about messages. The tray (tray.nim) owns the bus,
-## the request bookkeeping and the menu session; the popup (menupopup.nim)
+## the request bookkeeping and the menu session; the popup (traymenu.nim)
 ## draws the tree.
 
 import
-  ../dbus/sdbus,
+  sdbus,
   menutree
 
 export menutree

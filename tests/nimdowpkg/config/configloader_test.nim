@@ -4,7 +4,7 @@ import
   parsetoml,
   tables,
   config/configloader,
-  keys/keyutils,
+  config/keys,
   tag
 
 proc noop(keyCombo: KeyCombo) = discard

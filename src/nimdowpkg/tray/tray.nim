@@ -20,15 +20,15 @@
 ##
 ## Context menus (com.canonical.dbusmenu, see dbusmenu.nim): `openMenu` starts
 ## a `MenuSession` (AboutToShow(0), then GetLayout) whose tree the popup
-## (menupopup.nim) draws. The session follows the menu's LayoutUpdated and
+## (traymenu.nim) draws. The session follows the menu's LayoutUpdated and
 ## ItemsPropertiesUpdated signals with debounced refetches until `closeMenu`.
 
 import
   std/[posix, tables, strutils]
 
 import
-  ../dbus/sdbus,
-  ../logger,
+  sdbus,
+  ../sys/logger,
   ../wl/cairo,
   dbusmenu,
   icons

@@ -12,7 +12,7 @@ import
   config/configloader,
   statusbar,
   wl/protocols/river_window_management_v1,
-  logger
+  sys/logger
 
 export options
 

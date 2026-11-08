@@ -6,18 +6,18 @@ import
   taggedclients,
   monitor,
   statusbar,
-  menupopup,
+  tray/traymenu,
   tray/tray,
   tag,
   area,
   config/configloader,
   config/apprules,
   layouts/masterstacklayout,
-  keys/keyutils,
+  config/keys,
   wmcommands,
   wl/client as wlclient,
   wl/protocols/[river_window_management_v1, river_xkb_bindings_v1, river_layer_shell_v1],
-  logger,
+  sys/logger,
   listutils
 
 export wlclient

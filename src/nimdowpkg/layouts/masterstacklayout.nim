@@ -2,7 +2,7 @@ import
   math,
   ../client,
   ../area,
-  ../logger
+  ../sys/logger
 
 const layoutName: string = "masterstack"
 

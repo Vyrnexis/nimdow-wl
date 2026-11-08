@@ -9,10 +9,9 @@ import
   apprules,
   tagsettings,
   ../point,
-  ../keys/keyutils,
-  ../spawn,
-  ../logger,
-  ../windowtitleposition,
+  keys,
+  ../sys/spawn,
+  ../sys/logger,
   ../wmcommands
 
 export options
@@ -29,6 +28,9 @@ proc findConfigPath*(): string =
   if not fileExists(result):
     log "config file " & result & " does not exist", lvlError
     result = ""
+
+type WindowTitlePosition* = enum
+  wtpLeft, wtpCenter
 
 type
   KeyCombo* = tuple[key: string, modifiers: uint32]

@@ -5,7 +5,7 @@
 
 import std/[posix, monotimes]
 
-import ../logger
+import ../sys/logger
 import ./protocols/[wayland, viewporter, fractional_scale_v1]
 
 proc memfd_create(name: cstring, flags: cuint): cint

@@ -21,14 +21,14 @@ import
   std/[posix, tables, strutils, json]
 
 import
-  config/configloader,
-  statusbar,
-  tray/tray,
-  tray/icons,
-  wl/client as wlclient,
-  wl/cairo,
-  wl/shm,
-  wl/protocols/river_window_management_v1
+  ../config/configloader,
+  ../statusbar,
+  tray,
+  icons,
+  ../wl/client as wlclient,
+  ../wl/cairo,
+  ../wl/shm,
+  ../wl/protocols/river_window_management_v1
 
 const
   border = 1

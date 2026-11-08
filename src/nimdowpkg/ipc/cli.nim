@@ -9,7 +9,7 @@ import
   ipc,
   ../config/configloader,
   ../wmcommands,
-  ../logger
+  ../sys/logger
 
 const version* = "v0.7.41"
 const commit* = getEnv("LATEST_COMMIT")

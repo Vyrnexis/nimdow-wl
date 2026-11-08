@@ -8,7 +8,7 @@ import
 
 from posix import kill, errno, recv, poll, TPollfd, Pid, ESRCH, EINTR, EAGAIN, EWOULDBLOCK, POLLIN
 
-import ../logger
+import ../sys/logger
 
 const
   ipcPrefix* = "nimdow-ipc"

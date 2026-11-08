@@ -24,8 +24,7 @@ import
 
 import
   point,
-  logger,
-  windowtitleposition,
+  sys/logger,
   config/configloader,
   config/tagsettings,
   wl/client as wlclient,

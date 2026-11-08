@@ -4,7 +4,7 @@ import
 
 import
   ../tag,
-  ../logger
+  ../sys/logger
 
 type
   TagSettings* = OrderedTable[TagID, TagSetting]

@@ -567,7 +567,7 @@ scenario_appRules() {
        and ((.y + (.height + 2 * .borderWidth) / 2) - ($BAR + ($HEIGHT - $BAR) / 2) | fabs) <= 2
        and .y >= $BAR"
   # The title is set (OSC 0) shortly after the window was mapped: the title rule
-  # still applies (see applyLateRules in windowmanager.nim).
+  # still applies (see applyLateRules in wm/windows.nim).
   alacritty --class e2e-late -e sh -c "sleep 0.3; printf '\\033]0;e2e-late-title\\007'; sleep 3600" \
     >/dev/null 2>&1 &
   expect "late title rule: moved to tag 5" 'app("e2e-late") | .tags == [5]'

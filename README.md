@@ -165,10 +165,11 @@ Nimble tasks:
 - `nimble test`: run the unit tests (needs `nimtest`)
 - `nimble wlgen`: regenerate the Wayland protocol bindings from `protocol/*.xml`
 - `nimble e2e`: build and run the end-to-end tests
+- `nimble nested`: build a debug binary and run it in a River window nested in your current Wayland session
 - `nimble lint`: run `nimpretty`
 
-`./run.sh` builds a debug binary and runs it in a River window nested in your current Wayland session, using
-`config.default.toml`.
+`bash tools/dev-nested.sh` (or `nimble nested`) builds a debug binary and runs it in a River window nested in your
+current Wayland session, using `config.default.toml`.
 
 `bash tests/e2e/run.sh [-o outdir] [-b] [-s scenario,...]` runs nimdow-wl in a nested River with
 `tests/e2e/config.toml`. It needs `river`, `grim`, `alacritty`, `jq`, `dbus-run-session`, python3 with PyGObject

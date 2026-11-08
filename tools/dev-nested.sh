@@ -2,7 +2,7 @@
 # Dev script: build nimdow-wl and run it nested in River inside the current
 # Wayland session (a window on your desktop).
 set -e
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/.."
 export PATH="$HOME/.nimble/bin:$PATH"
 
 nimble debug

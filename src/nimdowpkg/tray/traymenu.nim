@@ -5,7 +5,7 @@
 ##
 ## The menu *data* lives in the tray (`Tray.menu`, see tray.nim); this module
 ## only shows it. The state machine runs in manage sequences (`manage`):
-##  * pointer events of the popup surfaces (routed by statusbar.nim through
+##  * pointer events of the popup surfaces (routed by bar/input.nim through
 ##    `InputTarget`) and key events of the seat's wl_keyboard are queued and
 ##    handled there; hover only changes the highlight, which is redrawn by
 ##    the next `flush`;

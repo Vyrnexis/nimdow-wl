@@ -11,7 +11,20 @@ import
   ../wm/commands,
   ../sys/logger
 
-const version* = "v0.7.41"
+const nimbleFile = staticRead("../../../nimdow.nimble")
+  ## The single source of the version.
+
+proc nimbleVersion(nimble: string): string =
+  for line in nimble.splitLines:
+    let line = line.strip
+    if line.startsWith("version"):
+      let first = line.find('"')
+      let last = line.rfind('"')
+      if first >= 0 and last > first:
+        return line[first + 1 ..< last]
+  raise newException(ValueError, "no version found in nimdow.nimble")
+
+const version* = "v" & nimbleVersion(nimbleFile)
 const commit* = getEnv("LATEST_COMMIT")
 
 proc handleWMCommand(commandStr: string): bool =

@@ -44,3 +44,6 @@ task wlgen, "Regenerate Wayland protocol bindings from protocol/*.xml":
 
 task e2e, "Run the end-to-end tests in a nested River (see tests/e2e/run.sh)":
   exec "bash tests/e2e/run.sh -b"
+
+task nested, "Build a debug binary and run it in a River window nested in the current session":
+  exec "bash tools/dev-nested.sh"

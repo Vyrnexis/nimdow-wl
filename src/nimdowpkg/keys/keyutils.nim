@@ -29,6 +29,8 @@ const ModifierTable* = {
   "mod5": RIVER_SEAT_V1_MODIFIERS_MOD5,
 }.toTable()
 
+const XKB_KEYSYM_CASE_INSENSITIVE = 1.cint
+
 proc toKeysym*(key: string): Keysym =
   ## Converts a key name (e.g. "Return", "i", "comma", "1") to an xkbcommon keysym.
   ## Returns NoSymbol if the name is unknown.
@@ -39,4 +41,7 @@ proc toKeysym*(key: string): Keysym =
   ## lowercase: a config key "R" (keysym `R`, shift level) could never match.
   if key.len == 1 and key[0] in {'A'..'Z'}:
     return xkb_keysym_from_name(key.toLowerAscii.cstring, 0)
-  xkb_keysym_from_name(key.cstring, 0)
+  result = xkb_keysym_from_name(key.cstring, 0)
+  if result == NoSymbol:
+    # "return" for "Return" and the like.
+    result = xkb_keysym_from_name(key.cstring, XKB_KEYSYM_CASE_INSENSITIVE)

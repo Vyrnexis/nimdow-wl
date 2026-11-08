@@ -549,10 +549,9 @@ proc applyConfig*(this: WindowManager, config: Config, configTable: TomlTable) =
   let previous = this.config
   this.config = config
   try:
-    config.populateAppRules(configTable)
+    # Actions must exist before the key combos are bound to them.
     this.mapConfigActions()
-    config.populateKeyComboTable(configTable)
-    config.populateGeneralSettings(configTable)
+    config.load(configTable)
     logger.enabled = config.loggingEnabled
   except Exception:
     this.config = previous
@@ -562,7 +561,8 @@ proc reloadConfig*(this: WindowManager) =
   let oldLoggingEnabled = logger.enabled
 
   try:
-    this.applyConfig(newConfig(), configloader.loadConfigFile())
+    # strict: a broken file keeps the running config instead of the defaults.
+    this.applyConfig(newConfig(), configloader.loadConfigFile(strict = true))
   except Exception:
     # The old config stays active if the new one fails to load.
     logger.enabled = oldLoggingEnabled
@@ -572,6 +572,8 @@ proc reloadConfig*(this: WindowManager) =
     monitor.setConfig(this.config)
 
   # trayEnabled may have changed: start or stop the tray.
+  if this.tray != nil and this.tray.alive:
+    this.tray.setTheme(this.config.trayIconTheme)
   if this.config.trayEnabled:
     if this.tray != nil and not this.tray.alive:
       this.tray = nil

@@ -5,8 +5,7 @@ import
   net,
   selectors,
   strutils,
-  strformat,
-  parsetoml
+  strformat
 
 import
   nimdowpkg/windowmanager,
@@ -82,12 +81,8 @@ when isMainModule:
 
   let loadedConfig = newConfig()
 
-  var configTable: TomlTable
-  try:
-    configTable = loadConfigFile()
-  except Exception:
-    # (The config loader raises plain Exceptions.)
-    log getCurrentExceptionMsg(), lvlError
+  # Falls back to the built-in default config if the user's file is broken.
+  let configTable = loadConfigFile()
 
   # Reap spawned processes (autostart and key bindings).
   installChildReaper()

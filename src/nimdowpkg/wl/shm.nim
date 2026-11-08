@@ -3,7 +3,7 @@
 ## (`ScaledSurface`: wp_viewporter + wp_fractional_scale_v1, falling back to
 ## the integer wl_surface.preferred_buffer_scale).
 
-import std/[posix, monotimes, times]
+import std/[posix, monotimes]
 
 import ../logger
 import ./protocols/[wayland, viewporter, fractional_scale_v1]

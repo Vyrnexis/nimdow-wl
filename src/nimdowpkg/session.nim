@@ -1,5 +1,5 @@
 import
-  std/[os, osproc, strutils]
+  std/[os, osproc]
 
 import logger
 

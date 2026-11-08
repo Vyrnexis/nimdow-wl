@@ -1,20 +1,17 @@
 import
-  hashes,
   taginfo,
-  layouts/layout
+  layouts/masterstacklayout
 
-export taginfo
+export taginfo, masterstacklayout
 
 type
   Tag* = ref object
     id*: TagID
-    layout*: Layout
+    layout*: MasterStackLayout
 
-proc newTag*(id: TagID, layout: Layout): Tag =
+proc newTag*(id: TagID, layout: MasterStackLayout): Tag =
   Tag(
     id: id,
     layout: layout
   )
-
-proc hash*(this: Tag): Hash = !$Hash(this.id)
 

@@ -1,13 +1,17 @@
 import
   math,
-  layout,
   ../client,
   ../area,
   ../logger
 
 const layoutName: string = "masterstack"
 
-type MasterStackLayout* = ref object of Layout
+type MasterStackLayout* = ref object
+  name*: string
+  monitorArea*: Area
+  gapSize*: uint
+  borderWidth*: uint
+  masterSlots*: uint
   widthDiff*: int
   defaultWidth*: int
   outerGap*: uint
@@ -66,11 +70,11 @@ proc newMasterStackLayout*(
   )
   result.setDefaultWidth(layoutOffset)
 
-method arrange*(
-    this: MasterStackLayout,
-      clients: seq[Client],
-    offset: LayoutOffset
-  ) =
+proc arrange*(
+  this: MasterStackLayout,
+  clients: seq[Client],
+  offset: LayoutOffset
+) =
   ## Aligns the clients in a master/stack fashion.
   let screenWidth = calcScreenWidth(this, offset)
   let screenHeight = calcScreenHeight(this, offset)

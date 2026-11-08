@@ -12,7 +12,7 @@ import
   area,
   config/configloader,
   config/apprules,
-  layouts/[layout, masterstacklayout],
+  layouts/masterstacklayout,
   keys/keyutils,
   wmcommands,
   wl/client as wlclient,
@@ -110,6 +110,11 @@ type
     unassigned: seq[Client]
     ## Hidden clients, not on any monitor. Last in, first out.
     scratchpad: seq[Client]
+    ## Windows River reported closed, destroyed at the next manage sequence.
+    closedClients: seq[Client]
+    ## `sortedMonitors`, until the monitors or their areas change.
+    sortedCache: seq[Monitor]
+    sortedDirty: bool
     ## The pointer is moved here (to the client, else the monitor's center) in
     ## the next manage sequence.
     warpMonitor: Monitor
@@ -123,7 +128,7 @@ type
     ## The tags (all monitors) when the open menu was first seen: it closes
     ## when they change.
     menuTagGen: int
-    menuTagSig: string
+    menuTagSig: seq[int]
     ## The status as set with `setStatus` (may contain per monitor statuses).
     status: string
     ## Key combos pressed since the last manage sequence.
@@ -169,13 +174,17 @@ proc findClient(this: WindowManager, window: Window): Client =
 
 proc sortedMonitors(this: WindowManager): seq[Monitor] =
   ## Monitors ordered by position (x, then y).
-  for monitor in this.monitors.values():
-    result.add monitor
-  result.sort(proc(a, b: Monitor): int =
-    result = cmp(a.area.x, b.area.x)
-    if result == 0:
-      result = cmp(a.area.y, b.area.y)
-  )
+  if this.sortedDirty:
+    this.sortedCache.setLen 0
+    for monitor in this.monitors.values():
+      this.sortedCache.add monitor
+    this.sortedCache.sort(proc(a, b: Monitor): int =
+      result = cmp(a.area.x, b.area.x)
+      if result == 0:
+        result = cmp(a.area.y, b.area.y)
+    )
+    this.sortedDirty = false
+  return this.sortedCache
 
 proc applyStatus(this: WindowManager) =
   ## Hands the status to the bars of all monitors.
@@ -232,9 +241,9 @@ proc setStatus*(this: WindowManager, status: string): bool =
   return true
 
 proc monitorOf(this: WindowManager, client: Client): Monitor =
-  for monitor in this.monitors.values():
-    if monitor.clients.find(client.window) != nil:
-      return monitor
+  ## The monitor holding the client (nil: none).
+  if client.monitorID > 0:
+    return this.monitors.getOrDefault(client.monitorID)
 
 # ---------------------------------------------------------------------------
 # Actions
@@ -250,33 +259,23 @@ proc findRelativeTag(this: WindowManager, offset: int): Tag =
     tagNumber = this.selectedMonitor.tags.len
   return this.selectedMonitor.tags[tagNumber - 1]
 
-template findLeftTag(this: WindowManager): Tag =
-  this.findRelativeTag(-1)
-
-template findRightTag(this: WindowManager): Tag =
-  this.findRelativeTag(1)
-
 proc increaseMasterCount(this: WindowManager) =
   let firstSelectedTag = this.selectedMonitor.taggedClients.findFirstSelectedTag()
   if firstSelectedTag == nil:
     return
 
-  var layout = firstSelectedTag.layout
-  if layout of MasterStackLayout:
-    MasterStackLayout(layout).masterSlots.inc
-    this.selectedMonitor.doLayout()
+  firstSelectedTag.layout.masterSlots.inc
+  this.selectedMonitor.doLayout()
 
 proc decreaseMasterCount(this: WindowManager) =
   let firstSelectedTag = this.selectedMonitor.taggedClients.findFirstSelectedTag()
   if firstSelectedTag == nil:
     return
 
-  var layout = firstSelectedTag.layout
-  if layout of MasterStackLayout:
-    var masterStackLayout = MasterStackLayout(layout)
-    if masterStackLayout.masterSlots.int > 0:
-      masterStackLayout.masterSlots.dec
-      this.selectedMonitor.doLayout()
+  let layout = firstSelectedTag.layout
+  if layout.masterSlots > 0:
+    layout.masterSlots.dec
+    this.selectedMonitor.doLayout()
 
 proc goToTag(this: WindowManager, tagID: TagID) =
   # Check if only the same tag is shown
@@ -299,19 +298,20 @@ proc goToTag(this: WindowManager, tagID: TagID) =
 
   this.selectedMonitor.setSelectedTags(destTag)
 
-template modWidthDiff(this: WindowManager, diff: int) =
+proc modWidthDiff(this: WindowManager, diff: int) =
   let firstTag = this.selectedMonitor.taggedClients.findFirstSelectedTag
-  if firstTag != nil and firstTag.layout of MasterStackLayout:
-    let masterStackLayout = cast[MasterStackLayout](firstTag.layout)
-    let screenWidth = masterStackLayout.calcScreenWidth(this.selectedMonitor.layoutOffset)
+  if firstTag == nil:
+    return
+  let
+    layout = firstTag.layout
+    screenWidth = layout.calcScreenWidth(this.selectedMonitor.layoutOffset)
 
-    if
-      (diff > 0 and masterStackLayout.widthDiff < 0) or
-      (diff < 0 and masterStackLayout.widthDiff > 0) or
-      masterStackLayout.calcClientWidth(screenWidth.uint).int - abs(masterStackLayout.widthDiff).int - abs(
-          diff).int > 0:
-        masterStackLayout.widthDiff += diff
-        this.selectedMonitor.doLayout()
+  if
+    (diff > 0 and layout.widthDiff < 0) or
+    (diff < 0 and layout.widthDiff > 0) or
+    layout.calcClientWidth(screenWidth.uint).int - abs(layout.widthDiff) - abs(diff) > 0:
+      layout.widthDiff += diff
+      this.selectedMonitor.doLayout()
 
 proc increaseMasterWidth(this: WindowManager) =
   this.modWidthDiff(this.selectedMonitor.monitorSettings.layoutSettings.resizeStep.int)
@@ -367,8 +367,7 @@ proc moveClientToMonitor(
     client.y = destination.area.y + (client.y - start.area.y)
 
   this.selectedMonitor = destination
-  var c = client
-  destination.addClient(c)
+  destination.addClient(client)
   if not keepPosition:
     # (A client dropped after a drag is already under the pointer.)
     this.warpMonitor = destination
@@ -404,7 +403,7 @@ proc moveWindowToScratchpad(this: WindowManager) =
 proc popScratchpad(this: WindowManager) =
   if this.scratchpad.len == 0:
     return
-  var client = this.scratchpad.pop()
+  let client = this.scratchpad.pop()
   let monitor = this.selectedMonitor
   let settings = this.config.scratchpadSettings
 
@@ -617,12 +616,12 @@ proc mapConfigActions*(this: WindowManager) =
       this.goToTag(tagIDOpt.get)
 
   createControl(keyCombo, $wmcGoToLeftTag):
-    let leftTag = this.findLeftTag()
+    let leftTag = this.findRelativeTag(-1)
     if leftTag != nil:
       this.goToTag(leftTag.id)
 
   createControl(keyCombo, $wmcGoToRightTag):
-    let rightTag = this.findRightTag()
+    let rightTag = this.findRelativeTag(1)
     if rightTag != nil:
       this.goToTag(rightTag.id)
 
@@ -665,12 +664,12 @@ proc mapConfigActions*(this: WindowManager) =
       this.selectedMonitor.moveSelectedWindowToTag(tagIDOpt.get)
 
   createControl(keyCombo, $wmcMoveWindowToLeftTag):
-    let leftTag = this.findLeftTag()
+    let leftTag = this.findRelativeTag(-1)
     if leftTag != nil:
       this.selectedMonitor.moveSelectedWindowToTag(leftTag.id)
 
   createControl(keyCombo, $wmcMoveWindowToRightTag):
-    let rightTag = this.findRightTag()
+    let rightTag = this.findRelativeTag(1)
     if rightTag != nil:
       this.selectedMonitor.moveSelectedWindowToTag(rightTag.id)
 
@@ -737,7 +736,10 @@ proc runIpcAction*(this: WindowManager, command: string, arg: string) =
 # ---------------------------------------------------------------------------
 
 proc windowClosed(data: pointer, obj: RiverWindowV1) {.cdecl.} =
-  cast[Client](data).isClosed = true
+  let client = cast[Client](data)
+  if not client.isClosed:
+    client.isClosed = true
+    wm.closedClients.add client
 
 proc windowDimensions(data: pointer, obj: RiverWindowV1, width, height: int32) {.cdecl.} =
   let client = cast[Client](data)
@@ -912,14 +914,17 @@ proc syncOutputs(this: WindowManager) =
   ## Creates monitors for new outputs (in position order), updates changed
   ## geometry and removes monitors of removed outputs (their clients move to
   ## another monitor).
-  for output in this.outputs[0 .. ^1]:
+  var gone: seq[Output]
+  for output in this.outputs:
     if output.removed:
+      gone.add output
       if output.monitor != nil:
         let monitor = output.monitor
         for client in monitor.clients.items:
           # Fullscreen is re-requested on the new monitor's output.
           client.sentFullscreen = false
           client.sentFullscreenOutput = nil
+          client.monitorID = 0
           this.unassigned.add client
         if monitor.statusBar != nil:
           if this.tray != nil:
@@ -928,10 +933,8 @@ proc syncOutputs(this: WindowManager) =
             this.menu.manage(this.tray, nil, (0, 0, 0, 0))
           monitor.statusBar.destroy()
           monitor.statusBar = nil
-        for id, m in this.monitors.pairs:
-          if m == monitor:
-            this.monitors.del id
-            break
+        this.monitors.del monitor.id
+        this.sortedDirty = true
         if this.warpMonitor == monitor:
           this.warpMonitor = nil
           this.warpClient = nil
@@ -940,23 +943,29 @@ proc syncOutputs(this: WindowManager) =
           for m in this.sortedMonitors():
             this.selectedMonitor = m
             break
-      if output.layerOutput != nil:
-        river_layer_shell_output_v1_destroy(output.layerOutput)
-        output.layerOutput = nil
-      if this.layerDefault == output:
-        this.layerDefault = nil
-      river_output_v1_destroy(output.obj)
-      this.outputs.dropAt output
-      GC_unref output
-    elif output.hasGeometry and output.monitor != nil and
-         output.monitor.area != output.outputArea:
-      output.monitor.area = output.outputArea
-      output.monitor.reserved = output.reservedEdges()
-      output.monitor.updateMonitor()
-    elif output.monitor != nil and output.monitor.reserved != output.reservedEdges():
-      # A layer surface (another bar, ...) was mapped, changed or went away.
-      output.monitor.reserved = output.reservedEdges()
-      output.monitor.updateMonitor()
+    elif output.monitor != nil:
+      let
+        monitor = output.monitor
+        reserved = output.reservedEdges()
+      if output.hasGeometry and monitor.area != output.outputArea:
+        monitor.area = output.outputArea
+        monitor.reserved = reserved
+        this.sortedDirty = true
+        monitor.updateMonitor()
+      elif monitor.reserved != reserved:
+        # A layer surface (another bar, ...) was mapped, changed or went away.
+        monitor.reserved = reserved
+        monitor.updateMonitor()
+
+  for output in gone:
+    if output.layerOutput != nil:
+      river_layer_shell_output_v1_destroy(output.layerOutput)
+      output.layerOutput = nil
+    if this.layerDefault == output:
+      this.layerDefault = nil
+    river_output_v1_destroy(output.obj)
+    this.outputs.dropAt output
+    GC_unref output
 
   var fresh: seq[Output]
   for output in this.outputs:
@@ -976,6 +985,7 @@ proc syncOutputs(this: WindowManager) =
     output.monitor = newMonitor(id, output.obj, output.outputArea, this.config)
     output.monitor.reserved = output.reservedEdges()
     this.monitors[id] = output.monitor
+    this.sortedDirty = true
     if this.barCtx != nil:
       let settings = output.monitor.monitorSettings
       output.monitor.statusBar = newStatusBar(
@@ -1098,7 +1108,6 @@ proc assignUnassigned(this: WindowManager) =
   var waiting: seq[Client]
   for client in this.unassigned:
     var
-      c = client
       monitor = this.selectedMonitor
       rule: AppRule
     if client.isNew:
@@ -1130,7 +1139,7 @@ proc assignUnassigned(this: WindowManager) =
         of wsNormal:
           discard
 
-      monitor.addClient(c, rule == nil or rule.tagIDs.len == 0)
+      monitor.addClient(client, rule == nil or rule.tagIDs.len == 0)
       this.applyHints(client, monitor)
       if client.isFloating:
         client.centerIfAtOrigin(monitor)
@@ -1138,7 +1147,7 @@ proc assignUnassigned(this: WindowManager) =
         monitor.setSelectedClient(client)
         monitor.doLayout()
     else:
-      monitor.addClient(c)
+      monitor.addClient(client)
   this.unassigned = waiting
   if waiting.len > 0:
     # Nothing else may be going on: have River start another manage sequence.
@@ -1264,18 +1273,21 @@ proc wmSeat(data: pointer, obj: RiverWindowManagerV1, s: RiverSeatV1) {.cdecl.} 
   wm.seats.add seat
 
 proc syncSeats(this: WindowManager) =
-  for seat in this.seats[0 .. ^1]:
+  var gone: seq[Seat]
+  for seat in this.seats:
     if seat.removed:
-      seat.destroyBindings()
-      if seat.layerSeat != nil:
-        river_layer_shell_seat_v1_destroy(seat.layerSeat)
-      river_seat_v1_destroy(seat.obj)
-      this.seats.dropAt seat
-      GC_unref seat
+      gone.add seat
     elif seat.isNew or this.bindingsDirty:
       seat.destroyBindings()
       this.createBindings(seat)
       seat.isNew = false
+  for seat in gone:
+    seat.destroyBindings()
+    if seat.layerSeat != nil:
+      river_layer_shell_seat_v1_destroy(seat.layerSeat)
+    river_seat_v1_destroy(seat.obj)
+    this.seats.dropAt seat
+    GC_unref seat
   this.bindingsDirty = false
 
 # ---------------------------------------------------------------------------
@@ -1321,7 +1333,7 @@ proc handleBarClicks(this: WindowManager) =
         let
           scrollUp = click.button == 4
           left = scrollUp != this.config.reverseTagScrolling
-          tag = if left: this.findLeftTag() else: this.findRightTag()
+          tag = if left: this.findRelativeTag(-1) else: this.findRelativeTag(1)
         if tag != nil:
           this.goToTag(tag.id)
       else:
@@ -1351,14 +1363,14 @@ proc selectClient(this: WindowManager, client: Client) =
     this.selectedMonitor = monitor
     monitor.setSelectedClient(client)
 
-proc tagSignature(this: WindowManager): string =
+proc tagSignature(this: WindowManager): seq[int] =
+  ## The selected tags of all monitors, as one bit mask per monitor (after its ID).
   for monitor in this.sortedMonitors():
-    result.add $monitor.id & ":"
-    var tags: seq[int]
+    var mask = 0
     for id in monitor.selectedTags:
-      tags.add id.int
-    tags.sort()
-    result.add $tags & ";"
+      mask = mask or (1 shl id)
+    result.add monitor.id
+    result.add mask
 
 proc manageMenu(this: WindowManager) =
   ## Closes the tray menu when the tags changed and lets the popups follow the
@@ -1496,7 +1508,9 @@ proc flushVisibility(client: Client) =
 proc applyManageState(this: WindowManager) =
   ## Sends window management state (and show/hide) to River.
   for monitor in this.monitors.values():
-    monitor.doLayout()
+    # The mutators relayout themselves; this catches what they could not know.
+    if monitor.layoutDirty:
+      monitor.doLayout()
     for client in monitor.clients.items:
       if client.closeRequested:
         client.closeRequested = false
@@ -1612,13 +1626,8 @@ proc onManageStart(this: WindowManager) =
   this.syncOutputs()
 
   # Remove closed windows.
-  var closed: seq[Client]
-  for client in this.allClients:
-    if client.isClosed: closed.add client
-  for client in this.unassigned:
-    if client.isClosed: closed.add client
-  for client in this.scratchpad:
-    if client.isClosed: closed.add client
+  let closed = this.closedClients
+  this.closedClients.setLen 0
   for client in closed:
     this.destroyClient(client)
 
@@ -1634,13 +1643,13 @@ proc onManageStart(this: WindowManager) =
   this.syncSeats()
 
   # Client requests and changed hints.
-  var clients: seq[Client]
-  for client in this.allClients:
-    clients.add client
-  for client in clients:
-    let monitor = this.monitorOf(client)
-    if monitor == nil:
-      continue
+  var requests: seq[tuple[monitor: Monitor, client: Client]]
+  for monitor in this.monitors.values():
+    for client in monitor.clients.items:
+      if client.titleChanged or client.hintsDirty or
+         client.fullscreenRequest != frNone or client.pointerRequest != prNone:
+        requests.add (monitor, client)
+  for (monitor, client) in requests:
     if client.titleChanged:
       this.applyLateRules(client, monitor)
     if client.hintsDirty:
@@ -1757,33 +1766,50 @@ proc applyRenderState(this: WindowManager) =
       let bw = if client.isFullscreen: 0'i32 else: client.borderWidth.int32
       # River positions fullscreen windows itself. Layout areas include the
       # border; River positions the window content.
-      if not client.isFullscreen:
+      if client.isFullscreen:
+        client.sentPosition = false
+      elif not client.sentPosition or client.sentX != client.x + bw.int or
+           client.sentY != client.y + bw.int:
         river_node_v1_set_position(
           client.node, (client.x + bw).int32, (client.y + bw).int32
         )
-      river_window_v1_set_borders(
-        client.window,
-        RIVER_WINDOW_V1_EDGES_TOP or RIVER_WINDOW_V1_EDGES_BOTTOM or
-          RIVER_WINDOW_V1_EDGES_LEFT or RIVER_WINDOW_V1_EDGES_RIGHT,
-        bw,
-        colorChannel(color, 16), colorChannel(color, 8), colorChannel(color, 0),
-        0xffffffff'u32
-      )
+        client.sentX = client.x + bw.int
+        client.sentY = client.y + bw.int
+        client.sentPosition = true
+      if not client.sentBorders or client.sentBorderWidth != bw or
+         client.sentBorderColor != color:
+        river_window_v1_set_borders(
+          client.window,
+          RIVER_WINDOW_V1_EDGES_TOP or RIVER_WINDOW_V1_EDGES_BOTTOM or
+            RIVER_WINDOW_V1_EDGES_LEFT or RIVER_WINDOW_V1_EDGES_RIGHT,
+          bw,
+          colorChannel(color, 16), colorChannel(color, 8), colorChannel(color, 0),
+          0xffffffff'u32
+        )
+        client.sentBorderWidth = bw
+        client.sentBorderColor = color
+        client.sentBorders = true
 
     # Stacking, bottom to top: tiled, floating (least recently selected
     # first), status bar, fullscreen. River does not render shell surfaces
     # below the top fullscreen window, so the bar hides while one is shown.
+    # Only sent when the order changed.
+    var stack: seq[RiverNodeV1]
     for client in monitor.clientSelection:
       if client.isVisible and not client.isFloating and not client.isFullscreen:
-        river_node_v1_place_top(client.node)
+        stack.add client.node
     for client in monitor.clientSelection:
       if client.isVisible and client.isFloating and not client.isFullscreen:
-        river_node_v1_place_top(client.node)
+        stack.add client.node
     if monitor.statusBar != nil:
-      river_node_v1_place_top(monitor.statusBar.node)
+      stack.add monitor.statusBar.node
     for client in monitor.clientSelection:
       if client.isVisible and client.isFullscreen:
-        river_node_v1_place_top(client.node)
+        stack.add client.node
+    if stack != monitor.sentStack:
+      for node in stack:
+        river_node_v1_place_top(node)
+      monitor.sentStack = stack
 
   # The tray menu above everything.
   if this.menu != nil:
@@ -1822,7 +1848,7 @@ wmListener.seat = wmSeat
 proc newWindowManager*(config: Config, configTable: TomlTable): WindowManager =
   ## Connects to River and binds the window management globals.
   ## Raises an IOError when River (or a required global) is unavailable.
-  result = WindowManager(config: config)
+  result = WindowManager(config: config, sortedDirty: true)
   wm = result
 
   # Config first: it enables the logger, so what follows is logged.

@@ -2,7 +2,10 @@ import math
 
 import point
 
-type Area* = tuple[x, y: int, width, height: uint]
+type
+  Area* = tuple[x, y: int, width, height: uint]
+  ## Space taken at each edge of a monitor (layer surfaces, the status bar).
+  LayoutOffset* = tuple[top, left, bottom, right: uint]
 
 proc center*(this: Area): Point[float] =
   ## Calculates the center of the area.

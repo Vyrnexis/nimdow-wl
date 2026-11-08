@@ -1,5 +1,4 @@
 import
-  hashes,
   sets,
   std/monotimes
 
@@ -23,6 +22,8 @@ type
   Client* = ref object of RootObj
     window*: Window
     node*: RiverNodeV1
+    ## The monitor whose client list holds this client (0: none).
+    monitorID*: int
     tagIDs*: HashSet[TagID]
     # Desired state. Event handlers and actions only change these fields;
     # they are flushed to River during the next manage/render sequence.
@@ -48,6 +49,12 @@ type
     ## propose_dimensions makes River configure the window and wait for it,
     ## so only re-propose when the size actually changes.
     sentWidth*, sentHeight*: int
+    ## Last position/borders sent to River (see `applyRenderState`); false
+    ## until sent, and after River may have moved the window itself.
+    sentPosition*, sentBorders*: bool
+    sentX*, sentY*: int
+    sentBorderWidth*: int32
+    sentBorderColor*: int
     # Window info reported by River.
     appId*: string
     title*: string
@@ -80,8 +87,6 @@ type
     sentTiled*: bool
     ## Dimensions the window actually took (river_window_v1.dimensions).
     reportedWidth*, reportedHeight*: int
-
-proc hash*(this: Client): Hash
 
 proc newClient*(window: Window, tagIDs: varargs[TagID]): Client =
   Client(
@@ -116,14 +121,4 @@ proc setLocation*(this: Client, x, y: int) =
 
 proc setUrgent*(this: Client, isUrgent: bool) =
   this.isUrgent = isUrgent
-
-func find*[T](clients: openArray[T], window: Window): int =
-  ## Finds a Client's index by its relative window.
-  ## If a client is not found, -1 is returned.
-  for i, client in clients:
-    if client.window == window:
-      return i
-  return -1
-
-proc hash*(this: Client): Hash = !$hash(cast[int](this.window))
 

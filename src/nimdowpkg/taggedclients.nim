@@ -24,12 +24,7 @@ type
     tags*: seq[Tag]
     selectedTags*: OrderedSet[TagID]
 
-proc contains*(this: TaggedClients, window: Window): bool
-proc currClientsContains*(this: TaggedClients, window: Window): bool
-proc currClientsContains*(this: TaggedClients, client: Client): bool
-proc findCurrentClients*(this: TaggedClients): seq[Client]
-
-proc newTaggedClients*(tagCount: int): TaggedClients = TaggedClients()
+proc newTaggedClients*(): TaggedClients = TaggedClients()
 
 iterator currClientsIter*(this: TaggedClients): ClientNode {.inline, closure.} =
   ## Iterates over clients in stack order.
@@ -92,11 +87,6 @@ proc findNextCurrClient*(
     if accept(node.value):
       return node
 
-iterator clientWithTagIter*(this: TaggedClients, tagID: TagID): ClientNode {.inline, closure.} =
-  for node in this.clients.nodes:
-    if node.value.tagIDs.contains(tagID):
-      yield node
-
 iterator currClientsSelectionNewToOldIter*(this: TaggedClients): Client {.inline, closure.} =
   ## Iterates over clients in order of selection,
   ## from most recent to least recent.
@@ -108,24 +98,6 @@ iterator currClientsSelectionNewToOldIter*(this: TaggedClients): Client {.inline
 proc findCurrentClients*(this: TaggedClients): seq[Client] =
   for node in this.currClientsIter:
     result.add(node.value)
-
-proc currClientsContains*(this: TaggedClients, client: Client): bool =
-  for node in this.currClientsIter:
-    if node.value == client:
-      return true
-  return false
-
-proc currClientsContains*(this: TaggedClients, window: Window): bool =
-  for node in this.currClientsIter:
-    if node.value != nil and node.value.window == window:
-      return true
-  return false
-
-proc contains*(this: TaggedClients, window: Window): bool =
-  for client in this.clients.items:
-    if client != nil and client.window == window:
-      return true
-  return false
 
 proc currClientNode*(this: TaggedClients): ClientNode =
   ## Gets the most recently selected client (as a node) in the list
@@ -143,20 +115,20 @@ proc currClientNode*(this: TaggedClients): ClientNode =
 proc currClient*(this: TaggedClients): Client =
   ## Gets the most recently selected client in the list
   ## of clients that are available in the selectedTags.
-  let node = this.currClientNode
-  if node != nil:
-    return node.value
+  for client in this.currClientsSelectionNewToOldIter:
+    return client
 
 template withSomeCurrClient*(this: TaggedClients, client, body: untyped) =
   ## Executes `body` if `this.currClient != nil`
-  if this.currClient != nil:
-    var client: Client = this.currClient
+  let client = this.currClient
+  if client != nil:
     body
 
 proc removeByWindow*(this: TaggedClients, window: Window): bool =
   # Remove the client from the list.
   for node in this.clients.nodes:
     if node.value.window == window:
+      node.value.monitorID = 0
       this.clients.remove(node)
       result = true
       break
@@ -183,10 +155,3 @@ proc selectClient*(this: TaggedClients, window: Window) =
 proc findFirstSelectedTag*(this: TaggedClients): Tag =
   for id in this.selectedTags.items:
     return this.tags[id - 1]
-
-proc find*(list: DoublyLinkedList[Client], window: Window): ClientNode =
-  for node in list.nodes:
-    if node.value != nil and node.value.window == window:
-      result = node
-      break
-

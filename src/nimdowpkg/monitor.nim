@@ -9,8 +9,6 @@ import
 import
   taggedclients,
   area,
-  layouts/layout,
-  layouts/masterstacklayout,
   config/configloader,
   statusbar,
   wl/protocols/river_window_management_v1,
@@ -24,7 +22,6 @@ type
     ## The River output this monitor was built from.
     output*: RiverOutputV1
     area*: Area
-    config: Config
     monitorSettings*: MonitorSettings
     windowSettings: WindowSettings
     previousTagID*: TagID
@@ -39,6 +36,13 @@ type
     statusBar*: StatusBar
     isStatusBarEnabled*: bool
     taggedClients*: TaggedClients
+    ## State the layout depends on changed outside of the mutators that relayout
+    ## themselves; `doLayout` is due before the next manage sequence is applied.
+    layoutDirty*: bool
+    ## The stacking order last sent to River (bottom to top).
+    sentStack*: seq[RiverNodeV1]
+    ## What `syncStatusBar` last handed to the bar.
+    sentBar: tuple[valid: bool, tags: seq[BarTag], title: string, selected: bool]
 
 proc doLayout*(this: Monitor)
 proc updateMonitor*(this: Monitor)
@@ -54,13 +58,12 @@ proc newMonitor*(
   result.id = id
   result.output = output
   result.area = area
-  result.config = currentConfig
   if currentConfig.monitorSettings.hasKey(id):
     result.monitorSettings = currentConfig.monitorSettings[id]
   else:
     result.monitorSettings = currentConfig.defaultMonitorSettings
   result.windowSettings = currentConfig.windowSettings
-  result.taggedClients = newTaggedClients(tagCount)
+  result.taggedClients = newTaggedClients()
   result.isStatusBarEnabled = true
   for i in 1..tagCount:
     let tagSetting = result.monitorSettings.tagSettings[i]
@@ -117,12 +120,10 @@ proc updateMonitor*(this: Monitor) =
   this.layoutOffset = this.calcLayoutOffset()
   for tag in this.taggedClients.tags:
     tag.layout.monitorArea = this.area
-    if tag.layout of MasterStackLayout:
-      let layout = cast[MasterStackLayout](tag.layout)
-      # The width the user set (widthDiff) survives bar toggles and changes of
-      # the reservation that leave the screen width as it was.
-      if layout.calcScreenWidth(this.layoutOffset) != layout.widthBasis:
-        layout.setDefaultWidth(this.layoutOffset)
+    # The width the user set (widthDiff) survives bar toggles and changes of
+    # the reservation that leave the screen width as it was.
+    if tag.layout.calcScreenWidth(this.layoutOffset) != tag.layout.widthBasis:
+      tag.layout.setDefaultWidth(this.layoutOffset)
   this.doLayout()
 
 ########################################################
@@ -165,24 +166,29 @@ proc syncStatusBar*(this: Monitor, isSelected: bool) =
   if this.statusBar == nil:
     return
   let currClient = this.taggedClients.currClient
+  var perTag: array[TagID, BarTag]
+  for state in perTag.mitems:
+    state.empty = true
+  for client in this.clients.items:
+    for tagID in client.tagIDs:
+      perTag[tagID].empty = false
+      perTag[tagID].urgent = perTag[tagID].urgent or client.isUrgent
+      if client == currClient:
+        perTag[tagID].hasCurrent = true
   var tagStates: seq[BarTag]
   for tagID in this.monitorSettings.tagSettings.keys():
-    var state = BarTag(empty: true)
-    for node in this.taggedClients.clientWithTagIter(tagID):
-      state.empty = false
-      state.urgent = state.urgent or node.value.isUrgent
-      if node.value == currClient:
-        state.hasCurrent = true
+    var state = perTag[tagID]
     state.selected = this.selectedTags.contains(tagID)
     tagStates.add state
-  this.statusBar.update(
-    tagStates,
-    if currClient != nil: currClient.title else: "",
-    isSelected
-  )
+  let title = if currClient != nil: currClient.title else: ""
+  if this.sentBar.valid and this.sentBar.tags == tagStates and
+     this.sentBar.title == title and this.sentBar.selected == isSelected:
+    return
+  this.sentBar = (true, tagStates, title, isSelected)
+  this.statusBar.update(tagStates, title, isSelected)
 
 proc setConfig*(this: Monitor, config: Config) =
-  this.config = config
+  this.sentBar.valid = false
   this.windowSettings = config.windowSettings
   if config.monitorSettings.hasKey(this.id):
     this.monitorSettings = config.monitorSettings[this.id]
@@ -201,10 +207,9 @@ proc setConfig*(this: Monitor, config: Config) =
     tag.layout.gapSize = this.monitorSettings.layoutSettings.gapSize
     tag.layout.borderWidth = this.windowSettings.borderWidth
     tag.layout.masterSlots = tagSetting.numMasterWindows.uint
-    let masterLayout = cast[MasterStackLayout](tag.layout)
-    masterLayout.outerGap = this.monitorSettings.layoutSettings.outerGap
-    masterLayout.defaultWidth = tagSetting.defaultMasterWidthPercentage
-    masterLayout.setDefaultWidth(this.layoutOffset)
+    tag.layout.outerGap = this.monitorSettings.layoutSettings.outerGap
+    tag.layout.defaultWidth = tagSetting.defaultMasterWidthPercentage
+    tag.layout.setDefaultWidth(this.layoutOffset)
 
   for client in this.taggedClients.clients:
     if client.borderWidth != 0 or this.monitorSettings.layoutSettings.outerGap > 0:
@@ -218,8 +223,10 @@ proc setSelectedClient*(this: Monitor, client: Client) =
   if client != nil:
     if client.isUrgent:
       client.setUrgent(false)
+    # The topmost fullscreen client depends on the selection order.
+    this.layoutDirty = true
 
-    if this.clients.find(client.window) == nil:
+    if client.monitorID != this.id:
       log "Attempted to select a client not on the current tags"
       return
 
@@ -236,9 +243,6 @@ proc tagIDFromArg*(this: Monitor, arg: string): Option[TagID] =
   except ValueError:
     log "Invalid tag number \"" & arg & "\": " & getCurrentExceptionMsg(), lvlError
 
-proc focusClient*(this: Monitor, client: Client) =
-  this.setSelectedClient(client)
-
 proc doLayout*(this: Monitor) =
   ## Revalidates the current layout of the viewed tag(s).
   ## Only computes areas and visibility; nothing is sent to River until the
@@ -249,6 +253,7 @@ proc doLayout*(this: Monitor) =
       this.taggedClients.findCurrentClients(),
       this.layoutOffset
     )
+  this.layoutDirty = false
 
   # Only the topmost (most recently selected) fullscreen client is shown while
   # there is one on the viewed tags, and it gets the focus.
@@ -269,11 +274,12 @@ proc doLayout*(this: Monitor) =
 proc removeWindow*(this: Monitor, window: Window): bool =
   ## Returns if the window was removed.
   ## After a window is removed, you should typically call doLayout.
+  this.sentStack.setLen 0
   return this.taggedClients.removeByWindow(window)
 
 proc toggleTagsForClient*(
   this: Monitor,
-  client: var Client,
+  client: Client,
   tagIDs: varargs[TagID]
 ) =
   # Cache if the client was on the current tags.
@@ -292,16 +298,18 @@ proc toggleTagsForClient*(
   if client.tagIDs.len == 0:
     client.tagIDs.incl(firstTagToggledOff.TagID)
 
-  # Perform the layout if the client was removed from the current tags.
-  if wasOnCurrTags and not client.tagIDs.anyIt(this.selectedTags.contains(it)):
+  # Perform the layout if the client was added to or removed from the current tags.
+  if wasOnCurrTags != client.tagIDs.anyIt(this.selectedTags.contains(it)):
     this.doLayout()
 
-proc toggleSelectedTagsForClient*(this: Monitor, client: var Client) =
+proc toggleSelectedTagsForClient*(this: Monitor, client: Client) =
   let selectedTags: OrderedSet[TagID] = this.selectedTags
   let tagIDs = toSeq(selectedTags.items)
   this.toggleTagsForClient(client, tagIDs)
 
-proc addClient*(this: Monitor, client: var Client, assignToSelectedTags: bool = true) =
+proc addClient*(this: Monitor, client: Client, assignToSelectedTags: bool = true) =
+  this.sentStack.setLen 0
+  client.monitorID = this.id
   this.clients.append(client)
   this.clientSelection.add(client)
   if assignToSelectedTags:
@@ -362,7 +370,7 @@ proc focusNextClient*(this: Monitor, reversed: bool) =
 
   let node = this.taggedClients.findNextCurrClient(currClient, reversed)
   if node != nil:
-    this.focusClient(node.value)
+    this.setSelectedClient(node.value)
 
 proc focusNextClient*(this: Monitor) =
   ## Focuses the next client in the stack.

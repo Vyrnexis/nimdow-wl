@@ -190,6 +190,11 @@ and a running Wayland session. Input is injected through the virtual keyboard an
 nested River runs in a private D-Bus session with `tests/e2e/fake_sni.py` as fake tray items. Screenshots, logs
 and `results.txt` go to the output directory (default `./e2e-out`).
 
+`sudo tools/fresh-install-test.sh [--keep]` tests the AUR packages on a clean system: it pacstraps a minimal Arch
+into a throwaway systemd-nspawn container, installs `nimdow-wl-desktop-git` with paru as a new user, boots the
+container and runs the desktop headless, checking the first-run config, autostart, session targets, portal and
+logout. Results go to `/var/tmp/nimdow-wl-test-result`. It needs about 2 GB of disk and network access.
+
 Set `NIMDOW_NO_SESSION=1` to skip the systemd/D-Bus session setup (the nested runs above do this, so they do not
 touch your real user session).
 

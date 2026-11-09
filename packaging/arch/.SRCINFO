@@ -56,6 +56,7 @@ pkgname = nimdow-wl-desktop-git
 	depends = networkmanager
 	depends = ttf-meslo-nerd
 	depends = pacman-contrib
+	depends = rtkit
 	optdepends = pavucontrol: volume mixer
 	optdepends = nautilus: file manager
 	optdepends = adw-gtk-theme: GTK theme

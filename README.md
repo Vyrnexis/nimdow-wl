@@ -34,13 +34,28 @@ written in [Nim](https://nim-lang.org/). X11 is no longer supported. Licensed un
 
 ### Arch Linux
 
+See [Install (Arch / AUR)](#install-arch--aur) below. `nimdow-wl-git` can be installed alongside the X11 `nimdow`.
+
+### Install (Arch / AUR)
+
+`packaging/arch/PKGBUILD` is a split package:
+
+- `nimdow-wl-git`: the window manager only (River integration, systemd user target, portal config, man page).
+- `nimdow-wl-desktop-git`: a complete desktop on a minimal install. It pulls in `nimdow-wl-git` and ships
+  `/etc/xdg/nimdow-wl/config.toml` (kitty, nimlaunch, volume/brightness/screenshot keys, autostarted swaybg, mako,
+  polkit agent and `nimdow-wl-status`).
+
 ```sh
-cd packaging/arch
-makepkg -si
+yay -S nimdow-wl-desktop-git      # or: cd packaging/arch && makepkg -si
+sudo systemctl enable --now NetworkManager
+river -c nimdow-wl                # from a TTY, or install a login manager (sddm, greetd-tuigreet)
 ```
 
-This builds and installs `nimdow-wl-git` (it can be installed alongside the X11 `nimdow`).
-The default config ends up in `/usr/share/nimdow-wl/config.default.toml`.
+On first login the desktop config is copied to `~/.config/nimdow-wl/config.toml`; edit that copy.
+`nimdow-wl-desktop-git` depends on: `nimdow-wl-git polkit-gnome mako swaybg xdg-desktop-portal-gtk xorg-xwayland
+gnome-keyring kitty nimlaunch-bin nimdow-wl-status wl-clipboard grim slurp libnotify pipewire pipewire-pulse
+wireplumber brightnessctl networkmanager ttf-meslo-nerd pacman-contrib`. Optional: `pavucontrol`, `nautilus`,
+`adw-gtk-theme`, `network-manager-applet`, `sddm`, `greetd-tuigreet`.
 
 ### From source
 
@@ -76,16 +91,13 @@ River running.
 
 nimdow-wl searches for a config file in this order:
 
-1. `${XDG_CONFIG_HOME}/nimdow-wl/config.toml`
-2. `${HOME}/.config/nimdow-wl/config.toml`
-3. `/usr/share/nimdow-wl/config.default.toml`
+1. `${XDG_CONFIG_HOME:-~/.config}/nimdow-wl/config.toml`
+2. the first `nimdow-wl/config.toml` in `${XDG_CONFIG_DIRS:-/etc/xdg}` (installed by `nimdow-wl-desktop-git`)
+3. the built-in copy of `config.default.toml`
 
-If none is found, nimdow-wl does not start. Start from the default:
-
-```sh
-mkdir -p ~/.config/nimdow-wl
-cp /usr/share/nimdow-wl/config.default.toml ~/.config/nimdow-wl/config.toml
-```
+If the user config does not exist at startup, the file chosen by 2 or 3 is copied to the user path (an existing file
+is never overwritten) and loaded. If the copy fails (e.g. a read-only home) the source is used as is.
+`/usr/share/nimdow-wl/config.default.toml` is a reference copy.
 
 `config.default.toml` documents every setting. The default modifier is Super; reload the config with
 Super+Shift+R. The [upstream wiki](https://github.com/avahe-kellenberger/nimdow/wiki/User-Configuration-File)

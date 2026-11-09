@@ -21,13 +21,43 @@ const embeddedDefaultConfig = staticRead("../../../config.default.toml")
 
 var configLoc*: string
 
+proc userConfigPath*(): string =
+  getConfigDir() / "nimdow-wl" / "config.toml"
+
+proc findSystemConfig*(xdgConfigDirs = getEnv("XDG_CONFIG_DIRS")): string =
+  ## First `nimdow-wl/config.toml` in $XDG_CONFIG_DIRS (default /etc/xdg), or "".
+  let dirs = if xdgConfigDirs.len == 0: "/etc/xdg" else: xdgConfigDirs
+  for dir in dirs.split(':'):
+    if dir.len == 0:
+      continue
+    let path = dir / "nimdow-wl" / "config.toml"
+    if fileExists(path):
+      return path
+
+proc seedUserConfig*(userPath, sourcePath: string, embeddedText = embeddedDefaultConfig): string =
+  ## Copies `sourcePath` (or the embedded default when empty) to `userPath` if that
+  ## does not exist yet; an existing file is never overwritten. Returns the path to
+  ## load: `userPath` on success, else `sourcePath` ("" means the embedded default).
+  if fileExists(userPath):
+    return userPath
+  try:
+    createDir(parentDir(userPath))
+    let text = if sourcePath.len > 0: readFile(sourcePath) else: embeddedText
+    writeFile(userPath, text)
+    log "created " & userPath & " from " &
+      (if sourcePath.len > 0: sourcePath else: "the built-in default config"), lvlInfo
+    return userPath
+  except Exception:
+    log "could not create " & userPath & ": " & getCurrentExceptionMsg(), lvlWarn
+    return sourcePath
+
 proc findConfigPath*(): string =
-  result = getConfigDir() / "nimdow-wl" / "config.toml"
-  if not fileExists(result):
-    result = "/usr/share/nimdow-wl/config.default.toml"
-  if not fileExists(result):
-    log "config file " & result & " does not exist", lvlError
-    result = ""
+  ## User config, else the system one ($XDG_CONFIG_DIRS), else the embedded default
+  ## (""). Without a user config, one is created from the chosen source.
+  let user = userConfigPath()
+  if fileExists(user):
+    return user
+  seedUserConfig(user, findSystemConfig())
 
 type WindowTitlePosition* = enum
   wtpLeft, wtpCenter
@@ -580,7 +610,7 @@ proc loadConfigFile*(strict = false): TomlTable =
     configLoc = findConfigPath()
   try:
     if configLoc.len == 0:
-      raise newException(IOError, "no config file found")
+      return parseConfig(embeddedDefaultConfig)
     return parseConfig(readFile(configLoc))
   except Exception:
     if strict:

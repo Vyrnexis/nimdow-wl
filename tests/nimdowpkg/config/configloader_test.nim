@@ -5,7 +5,8 @@ import
   tables,
   config/configloader,
   config/keys,
-  wm/clientlist
+  wm/clientlist,
+  wm/commands
 
 proc noop(keyCombo: KeyCombo) = discard
 
@@ -202,3 +203,98 @@ describe "Config settings":
     """
     assert config.monitorSettings[1].tagSettings[2].displayString == "two"
     assert config.defaultMonitorSettings.tagSettings[2].displayString == "2"
+
+describe "Config lookup and first-run copy":
+
+  proc tempRoot(name: string): string =
+    result = getTempDir() / ("nimdow-wl-test-" & name & "-" & $getCurrentProcessId())
+    removeDir(result)
+    createDir(result)
+
+  it "finds the first system config in XDG_CONFIG_DIRS":
+    let root = tempRoot("sys")
+    defer: removeDir(root)
+    createDir(root / "b" / "nimdow-wl")
+    writeFile(root / "b" / "nimdow-wl" / "config.toml", "# b")
+    createDir(root / "c" / "nimdow-wl")
+    writeFile(root / "c" / "nimdow-wl" / "config.toml", "# c")
+    assert findSystemConfig(root / "a:" & root / "b:" & root / "c") == root / "b" / "nimdow-wl" / "config.toml"
+    assert findSystemConfig(root / "a") == ""
+
+  it "copies the system config to the user path and creates directories":
+    let root = tempRoot("copy")
+    defer: removeDir(root)
+    let source = root / "sys.toml"
+    writeFile(source, "# system")
+    let user = root / "home" / "nimdow-wl" / "config.toml"
+    assert seedUserConfig(user, source) == user
+    assert readFile(user) == "# system"
+
+  it "writes the embedded default when there is no source":
+    let root = tempRoot("embedded")
+    defer: removeDir(root)
+    let user = root / "nimdow-wl" / "config.toml"
+    assert seedUserConfig(user, "", "# embedded") == user
+    assert readFile(user) == "# embedded"
+
+  it "never overwrites an existing user config":
+    let root = tempRoot("keep")
+    defer: removeDir(root)
+    let source = root / "sys.toml"
+    writeFile(source, "# system")
+    let user = root / "config.toml"
+    writeFile(user, "# mine")
+    assert seedUserConfig(user, source) == user
+    assert readFile(user) == "# mine"
+
+  it "keeps using the source when the copy fails":
+    let root = tempRoot("fail")
+    defer: removeDir(root)
+    let source = root / "sys.toml"
+    writeFile(source, "# system")
+    writeFile(root / "file", "")  # a file where a directory is needed
+    assert seedUserConfig(root / "file" / "nimdow-wl" / "config.toml", source) == source
+    assert seedUserConfig(root / "file" / "nimdow-wl" / "config.toml", "") == ""
+
+  it "findConfigPath seeds XDG_CONFIG_HOME from XDG_CONFIG_DIRS":
+    let root = tempRoot("find")
+    defer: removeDir(root)
+    createDir(root / "etc" / "nimdow-wl")
+    writeFile(root / "etc" / "nimdow-wl" / "config.toml", "# etc")
+    let savedHome = getEnv("XDG_CONFIG_HOME")
+    let savedDirs = getEnv("XDG_CONFIG_DIRS")
+    defer:
+      putEnv("XDG_CONFIG_HOME", savedHome)
+      putEnv("XDG_CONFIG_DIRS", savedDirs)
+      if savedHome.len == 0: delEnv("XDG_CONFIG_HOME")
+      if savedDirs.len == 0: delEnv("XDG_CONFIG_DIRS")
+    putEnv("XDG_CONFIG_HOME", root / "home")
+    putEnv("XDG_CONFIG_DIRS", root / "etc")
+    let expected = root / "home" / "nimdow-wl" / "config.toml"
+    assert findConfigPath() == expected
+    assert readFile(expected) == "# etc"
+
+describe "Desktop package config":
+
+  it "parses and wires the desktop programs":
+    let text = readFile(currentSourcePath().parentDir / ".." / ".." / ".." / "packaging" / "desktop" / "config.toml")
+    let table = parseConfig(text)
+    let config = newConfig()
+    for command in WMCommand:
+      config.configureAction($command, noop)
+    config.load(table)
+    # Every control resolved to an action (none was skipped as unknown or invalid).
+    var expected = 0
+    for name, control in table["controls"].tableVal.pairs:
+      expected += control["keys"].arrayVal.len
+    assert config.keyComboTable.len >= expected
+    assert config.regionClickActionTable.hasKey(4)
+    assert config.defaultMonitorSettings.barSettings.fonts[0].startsWith("MesloLGS Nerd Font")
+    let autostart = table["autostart"]["exec"].arrayVal
+    var cmds: seq[string]
+    for c in autostart: cmds.add c.stringVal
+    assert cmds == @["swaybg -c '#282828'", "mako",
+      "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1", "nimdow-wl-status"]
+    for key in ["XF86AudioRaiseVolume", "XF86AudioLowerVolume", "XF86AudioMute", "XF86AudioMicMute",
+                "XF86MonBrightnessUp", "XF86MonBrightnessDown", "Print"]:
+      assert config.keyComboTable.hasKey((key, 0'u32)), key

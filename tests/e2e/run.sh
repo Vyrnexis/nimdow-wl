@@ -68,6 +68,8 @@ if [ "$MODE" = outer ]; then
   # Unix socket paths are short: nimdow's IPC socket lives in a private runtime dir.
   RT="$(mktemp -d /tmp/nde2e.XXXXXX)"
   chmod 700 "$RT"
+  # Never read or seed the real ~/.config or /etc/xdg (the run uses --config anyway).
+  export XDG_CONFIG_HOME="$RT/xdg-config" XDG_CONFIG_DIRS="$RT/xdg-dirs"
   export E2E_RT="$RT" E2E_OUT="$OUT" E2E_ONLY="$ONLY" E2E_OUTER_BUS="${DBUS_SESSION_BUS_ADDRESS:-none}"
 
   # run_phase <name> <number of nested outputs> <scenario names...>

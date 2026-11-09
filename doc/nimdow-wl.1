@@ -224,9 +224,20 @@ Hides or shows the status bar on the selected monitor.
 .TP
 .B $XDG_CONFIG_HOME/nimdow-wl/config.toml
 The configuration file (\fB~/.config/nimdow-wl/config.toml\fR by default).
-If it does not exist,
+If it does not exist, the first
+.B nimdow-wl/config.toml
+in
+.B $XDG_CONFIG_DIRS
+(default
+.BR /etc/xdg ,
+installed by the nimdow-wl-desktop-git package) or else the built-in default is
+copied there at startup, and then used. An existing file is never overwritten.
+.TP
+.B /etc/xdg/nimdow-wl/config.toml
+The system-wide default configuration of the desktop package.
+.TP
 .B /usr/share/nimdow-wl/config.default.toml
-is used.
+Reference copy of the built-in default configuration.
 .TP
 .B $XDG_RUNTIME_DIR/nimdow-wl/ipc-socket.PID
 The IPC socket.

@@ -13,3 +13,5 @@ tests/e2e/nimdowinput_*
 # makepkg build artifacts
 packaging/arch/*
 !packaging/arch/PKGBUILD
+!packaging/arch/nimdow-wl-desktop.install
+!packaging/arch/.SRCINFO

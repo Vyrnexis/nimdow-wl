@@ -39,6 +39,15 @@ exec = [
   #"while true; do nimdow-wl --status \"$(date +%H:%M)\"; sleep 30; done",
 ]
 
+# Input settings (asserted by the input scenario). The variant keeps plain keys unchanged.
+[input.keyboard]
+  layout = "us"
+  variant = "altgr-intl"
+  options = "compose:ralt"
+  repeatRate = 30
+  repeatDelay = 400
+  numlock = true
+
 [settings]
   # Deterministic tray icon lookup (see tests/e2e/fake_sni.py).
   trayIconTheme = "Adwaita"

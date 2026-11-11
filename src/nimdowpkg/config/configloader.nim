@@ -63,6 +63,30 @@ type WindowTitlePosition* = enum
   wtpLeft, wtpCenter
 
 type
+  AccelProfile* = enum
+    apAdaptive = "adaptive", apFlat = "flat"
+  ClickMethod* = enum
+    cmClickfinger = "clickfinger", cmButtonAreas = "buttonareas"
+  ScrollMethod* = enum
+    smTwoFinger = "twofinger", smEdge = "edge", smNone = "none"
+
+  ## Every field is optional: unset means "leave the default".
+  KeyboardSettings* = object
+    layout*, variant*, options*, model*: Option[string]
+    repeatRate*, repeatDelay*: Option[int]
+    numlock*: Option[bool]
+  ## The settings of touchpads and mice; the keys of the other kind stay unset.
+  PointerSettings* = object
+    tap*, naturalScroll*, disableWhileTyping*, leftHanded*: Option[bool]
+    accelSpeed*: Option[float]
+    accelProfile*: Option[AccelProfile]
+    clickMethod*: Option[ClickMethod]
+    scrollMethod*: Option[ScrollMethod]
+  InputSettings* = object
+    keyboard*: KeyboardSettings
+    touchpad*, mouse*: PointerSettings
+
+type
   KeyCombo* = tuple[key: string, modifiers: uint32]
     ## `key` is an xkbcommon key name ("Return", "i", "1", ...). For tag actions it
     ## doubles as the argument (the tag number); IPC passes the argument as `key`.
@@ -126,6 +150,7 @@ type
     # Specific monitor settings
     monitorSettings*: Table[MonitorID, MonitorSettings]
     appRules*: seq[AppRule]
+    input*: InputSettings
 
 proc defaultMonitorSettings(): MonitorSettings =
   result.barSettings = BarSettings(
@@ -212,6 +237,32 @@ proc getStr(table: TomlTableRef, name: string): Option[string] =
     log name & " is not a string!", lvlWarn
   else:
     result = some(value.stringVal)
+
+proc getFloat(table: TomlTableRef, name: string, min, max: float): Option[float] =
+  if not table.hasKey(name):
+    return
+  let value = table[name]
+  var number: float
+  case value.kind
+  of TomlValueKind.Int: number = value.intVal.float
+  of TomlValueKind.Float: number = value.floatVal
+  else:
+    log name & " is not a number!", lvlWarn
+    return
+  if number < min or number > max:
+    log name & " must be between " & $min & " and " & $max & "!", lvlWarn
+  else:
+    result = some(number)
+
+proc getEnum[T: enum](table: TomlTableRef, name: string): Option[T] =
+  ## A string value naming one of the enum's values (case-insensitive).
+  let text = table.getStr(name)
+  if text.isNone:
+    return
+  for value in T:
+    if $value == text.get.toLowerAscii:
+      return some(value)
+  log name & " has an invalid value: \"" & text.get & "\"", lvlWarn
 
 proc parseHex*(text: string): Option[int] =
   ## Parses "rrggbb", "#rrggbb" or "0xrrggbb".
@@ -589,6 +640,46 @@ proc populateGeneralSettings*(this: Config, configTable: TomlTable) =
     else:
       log "modKey \"" & modKey.get & "\" is not a valid modifier; keeping the default", lvlWarn
 
+proc populateInputSettings*(this: Config, configTable: TomlTable) =
+  ## The optional [input.keyboard], [input.touchpad] and [input.mouse] tables.
+  this.input = InputSettings()
+  if not configTable.hasKey("input") or configTable["input"].kind != TomlValueKind.Table:
+    return
+  let input = configTable["input"].tableVal
+
+  proc section(name: string): TomlTableRef =
+    if input.hasKey(name):
+      if input[name].kind == TomlValueKind.Table:
+        return input[name].tableVal
+      log "[input." & name & "] is not a table", lvlWarn
+    newTTable().tableVal
+
+  let keyboard = section("keyboard")
+  this.input.keyboard = KeyboardSettings(
+    layout: keyboard.getStr("layout"),
+    variant: keyboard.getStr("variant"),
+    options: keyboard.getStr("options"),
+    model: keyboard.getStr("model"),
+    repeatRate: keyboard.getInt("repeatRate", 0),
+    repeatDelay: keyboard.getInt("repeatDelay", 0),
+    numlock: keyboard.getBool("numlock")
+  )
+  proc pointerSettings(t: TomlTableRef, touchpad: bool): PointerSettings =
+    result = PointerSettings(
+      naturalScroll: t.getBool("naturalScroll"),
+      accelSpeed: t.getFloat("accelSpeed", -1.0, 1.0),
+      accelProfile: getEnum[AccelProfile](t, "accelProfile")
+    )
+    if touchpad:
+      result.tap = t.getBool("tap")
+      result.disableWhileTyping = t.getBool("disableWhileTyping")
+      result.clickMethod = getEnum[ClickMethod](t, "clickMethod")
+      result.scrollMethod = getEnum[ScrollMethod](t, "scrollMethod")
+    else:
+      result.leftHanded = t.getBool("leftHanded")
+  this.input.touchpad = section("touchpad").pointerSettings(true)
+  this.input.mouse = section("mouse").pointerSettings(false)
+
 proc populateKeyComboTable*(this: Config, configTable: TomlTable) =
   ## Reads the user's configuration file and set the keybindings.
   guarded "controls":
@@ -604,6 +695,8 @@ proc load*(this: Config, configTable: TomlTable) =
   this.populateAppRules(configTable)
   this.populateKeyComboTable(configTable)
   this.populateGeneralSettings(configTable)
+  guarded "input settings":
+    this.populateInputSettings(configTable)
 
 proc parseConfig*(text: string): TomlTable =
   let loadedConfig = parsetoml.parseString(text)

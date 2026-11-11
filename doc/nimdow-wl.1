@@ -59,6 +59,34 @@ The settings
 .B [settings]
 table of the config file.
 .
+.PP
+The
+.B [input.keyboard]
+table sets the xkb keymap
+.RB ( layout ", " variant ", " options ", " model ),
+the key repeat
+.RB ( repeatRate
+in keys per second,
+.B repeatDelay
+in milliseconds) and
+.BR numlock .
+The
+.B [input.touchpad]
+table (libinput devices with tap support) takes
+.BR tap ", " naturalScroll ", " disableWhileTyping ", " accelSpeed " (-1.0 to 1.0),"
+.BR accelProfile " (adaptive, flat),"
+.BR clickMethod " (clickfinger, buttonareas) and"
+.BR scrollMethod " (twofinger, edge, none)."
+The
+.B [input.mouse]
+table (the other libinput pointers) takes
+.BR naturalScroll ", " accelSpeed ", " accelProfile " and " leftHanded .
+Every key is optional: a key that is not set leaves the default alone.
+Invalid values are logged and ignored.
+The settings are applied at startup, when a device appears and when the config is reloaded,
+and only to devices that support them.
+A rejected keymap is logged and River keeps its own.
+.
 .SH STARTING
 Select the
 .B nimdow-wl

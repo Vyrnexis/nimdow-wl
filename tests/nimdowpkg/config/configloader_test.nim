@@ -295,6 +295,110 @@ describe "Config lookup and first-run copy":
     assert findConfigPath() == expected
     assert readFile(expected) == "# etc"
 
+describe "Input settings":
+
+  it "leaves everything unset without an [input] section":
+    let input = loaded("").input
+    assert input.keyboard.layout.isNone and input.keyboard.repeatRate.isNone
+    assert input.touchpad.tap.isNone and input.mouse.accelSpeed.isNone
+
+  it "parses every key":
+    let input = loaded("""
+    [input.keyboard]
+    layout = "us,de"
+    variant = ""
+    options = "caps:escape"
+    model = "pc105"
+    repeatRate = 30
+    repeatDelay = 300
+    numlock = true
+
+    [input.touchpad]
+    tap = true
+    naturalScroll = true
+    disableWhileTyping = false
+    accelSpeed = 0.5
+    accelProfile = "Flat"
+    clickMethod = "buttonareas"
+    scrollMethod = "edge"
+
+    [input.mouse]
+    naturalScroll = false
+    accelSpeed = -1
+    accelProfile = "adaptive"
+    leftHanded = true
+    """).input
+    assert input.keyboard.layout == some("us,de")
+    assert input.keyboard.variant == some("")
+    assert input.keyboard.options == some("caps:escape")
+    assert input.keyboard.model == some("pc105")
+    assert input.keyboard.repeatRate == some(30)
+    assert input.keyboard.repeatDelay == some(300)
+    assert input.keyboard.numlock == some(true)
+    assert input.touchpad.tap == some(true)
+    assert input.touchpad.naturalScroll == some(true)
+    assert input.touchpad.disableWhileTyping == some(false)
+    assert input.touchpad.accelSpeed == some(0.5)
+    assert input.touchpad.accelProfile == some(apFlat)
+    assert input.touchpad.clickMethod == some(cmButtonAreas)
+    assert input.touchpad.scrollMethod == some(smEdge)
+    assert input.mouse.naturalScroll == some(false)
+    assert input.mouse.accelSpeed == some(-1.0)
+    assert input.mouse.accelProfile == some(apAdaptive)
+    assert input.mouse.leftHanded == some(true)
+
+  it "ignores invalid values and keeps the valid ones":
+    let input = loaded("""
+    [input.keyboard]
+    layout = 5
+    repeatRate = -1
+    repeatDelay = "slow"
+    numlock = "yes"
+    model = "pc105"
+
+    [input.touchpad]
+    tap = 1
+    accelSpeed = 2.0
+    accelProfile = "custom"
+    clickMethod = "palm"
+    scrollMethod = 3
+    naturalScroll = true
+
+    [input.mouse]
+    accelSpeed = "fast"
+    accelProfile = true
+    """).input
+    assert input.keyboard.layout.isNone and input.keyboard.repeatRate.isNone
+    assert input.keyboard.repeatDelay.isNone and input.keyboard.numlock.isNone
+    assert input.keyboard.model == some("pc105")
+    assert input.touchpad.tap.isNone and input.touchpad.accelSpeed.isNone
+    assert input.touchpad.accelProfile.isNone and input.touchpad.clickMethod.isNone
+    assert input.touchpad.scrollMethod.isNone
+    assert input.touchpad.naturalScroll == some(true)
+    assert input.mouse.accelSpeed.isNone and input.mouse.accelProfile.isNone
+
+  it "ignores keys of the other device kind and non-table sections":
+    let input = loaded("""
+    [input]
+    keyboard = 1
+
+    [input.touchpad]
+    leftHanded = true
+
+    [input.mouse]
+    tap = true
+    clickMethod = "clickfinger"
+    """).input
+    assert input.keyboard.layout.isNone
+    assert input.touchpad.leftHanded.isNone
+    assert input.mouse.tap.isNone and input.mouse.clickMethod.isNone
+
+  it "reloading drops the settings that were removed":
+    let config = loaded("[input.touchpad]\ntap = true")
+    assert config.input.touchpad.tap == some(true)
+    config.load(parseConfig(""))
+    assert config.input.touchpad.tap.isNone
+
 describe "Desktop package config":
 
   it "parses and wires the desktop programs":
@@ -311,6 +415,8 @@ describe "Desktop package config":
     assert config.keyComboTable.len >= expected
     for region in [1, 2, 4, 7]:
       assert config.regionClickActionTable.hasKey(region), $region
+    assert config.input.touchpad.tap == some(true)
+    assert config.input.keyboard.layout.isNone and config.input.mouse.accelSpeed.isNone
     assert config.defaultMonitorSettings.barSettings.fonts[0] == "MesloLGS Nerd Font:size=12:antialias=true"
     assert config.defaultMonitorSettings.barSettings.height == 30
     let autostart = table["autostart"]["exec"].arrayVal

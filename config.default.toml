@@ -91,6 +91,43 @@ exec = [
   # See config/keys.nim for details
   modKey = "super"
 
+# Input devices. Every key is optional: a key that is not set leaves the compositor's
+# or libinput's default alone, so without this section nothing changes.
+# Invalid values are logged and ignored. Settings apply at startup, when a device is
+# plugged in and on config reload; a key removed later keeps its value until River
+# restarts (or the device is replugged).
+# Needs River 0.5 (river_input_manager_v1, river_xkb_config_v1, river_libinput_config_v1).
+
+[input.keyboard]
+  # The xkb keymap is built from layout, variant, options and model (as in setxkbmap -rules evdev).
+  # It is built when at least one of these four is set; the others use xkbcommon's defaults.
+  #layout = "us"               # one or more layouts, e.g. "us,de"
+  #variant = ""                # one per layout, e.g. "dvorak," (empty entries: the layout's default)
+  #options = ""                # e.g. "caps:escape,grp:alt_shift_toggle"
+  #model = ""                  # e.g. "pc105"
+  # Key repeat. If only one is set, the other one is River's default (25 and 600).
+  #repeatRate = 25             # keys per second, 0 turns repeating off
+  #repeatDelay = 600           # milliseconds before the repeat starts
+  #numlock = true              # num lock state on all keyboards (also after a keymap change)
+
+# Touchpads: libinput devices that support tap-to-click. A setting is only sent when the
+# device reports that it supports it.
+[input.touchpad]
+  #tap = true                  # tap to click
+  #naturalScroll = false       # content follows the fingers
+  #disableWhileTyping = true   # ignore the touchpad while typing
+  #accelSpeed = 0.0            # -1.0 (slowest) to 1.0 (fastest)
+  #accelProfile = "adaptive"   # adaptive | flat
+  #clickMethod = "clickfinger" # clickfinger (1/2/3 fingers = left/right/middle) | buttonareas
+  #scrollMethod = "twofinger"  # twofinger | edge | none
+
+# Mice: the other libinput pointer devices.
+[input.mouse]
+  #naturalScroll = false
+  #accelSpeed = 0.0            # -1.0 to 1.0
+  #accelProfile = "flat"       # adaptive | flat
+  #leftHanded = false          # swap the left and right buttons
+
 # Window manager controls
 [controls]
   [controls.reloadConfig]

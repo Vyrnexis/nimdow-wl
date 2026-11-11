@@ -8,6 +8,7 @@ import
   windows,
   actions,
   debug,
+  inputconfig,
   seats,
   sequence,
   ../bar/statusbar,
@@ -105,6 +106,8 @@ proc newWindowManager*(config: Config, configTable: TomlTable): WindowManager =
       IOError,
       "river_window_manager_v1 or river_xkb_bindings_v1 not supported by the Wayland server"
     )
+
+  initInput(registry, result.config.input)
 
   result.barCtx = newBarContext(registry, result.manager)
   if result.barCtx == nil:

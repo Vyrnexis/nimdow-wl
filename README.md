@@ -20,6 +20,8 @@ written in [Nim](https://nim-lang.org/). X11 is no longer supported. Licensed un
 - systemd user session integration: on startup nimdow-wl exports the display environment to D-Bus and the systemd
   user manager and starts `nimdow-wl-session.target`, which binds `graphical-session.target` and pulls in
   `xdg-desktop-autostart.target`, so `~/.config/autostart` entries run. The target is stopped when nimdow-wl exits.
+- Keyboard and touchpad settings (`[input]`): xkb layout/variant/options/model, key repeat, numlock, and libinput
+  options (tap, natural scroll, acceleration, ...) for touchpads and mice.
 - TOML configuration with a reload key binding, plus a command line client for the window manager controls.
 
 ## Requirements
@@ -105,6 +107,26 @@ is never overwritten) and loaded. If the copy fails (e.g. a read-only home) the 
 Super+Shift+R. The [upstream wiki](https://github.com/avahe-kellenberger/nimdow/wiki/User-Configuration-File)
 describes the config format in more detail (the X11-specific parts do not apply). Use
 `nimdow-wl --config ./other.toml` to start with another file.
+
+### Input devices
+
+The optional `[input.keyboard]`, `[input.touchpad]` and `[input.mouse]` tables configure the input devices
+through River's `river_xkb_config_v1`, `river_libinput_config_v1` and `river_input_manager_v1` protocols. Every
+key is optional; a key that is not set leaves River's or libinput's default alone, and invalid values are logged and
+ignored.
+
+- Keyboard: `layout`, `variant`, `options`, `model` (the xkb keymap, compiled with xkbcommon and sent to every
+  keyboard; if River rejects it, the log says so and River's keymap stays), `repeatRate` (keys per second),
+  `repeatDelay` (ms) and `numlock`.
+- Touchpad (libinput devices with tap support): `tap`, `naturalScroll`, `disableWhileTyping`, `accelSpeed`
+  (-1.0 to 1.0), `accelProfile` (`adaptive`, `flat`), `clickMethod` (`clickfinger`, `buttonareas`) and `scrollMethod`
+  (`twofinger`, `edge`, `none`).
+- Mouse (the other libinput pointers): `naturalScroll`, `accelSpeed`, `accelProfile`, `leftHanded`.
+
+The settings are applied at startup, when a device appears and on config reload (Super+Shift+R). A setting is only
+sent to a device that reports support for it. Removing a key from the config does not undo it until River restarts.
+`nimdow-wl --dumpState` shows the keymap result and what each device reports. The desktop package enables
+`[input.touchpad] tap = true`.
 
 ### Status bar text
 

@@ -134,7 +134,7 @@ if [ "$MODE" = outer ]; then
   run_phase multi 2 multiMonitor
   run_phase trayhost 1 trayHostOnly
   run_phase single 1 spawn viewTags moveToTag focus masterCount masterWidth floating floatingKeys \
-    fullscreen close tagOps order reload typing dragMove dragResize barClick barScroll \
+    fullscreen close tagOps order reload input typing dragMove dragResize barClick barScroll \
     clickFocus appRules scratchpad statusBar trayIcons trayClick trayUpdate trayVanish \
     menuOpen menuActivate menuToggle menuDisabled menuSubmenu menuKeyboard menuDismiss menuReopen \
     trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore exitSession
@@ -209,7 +209,7 @@ elif [ "$PHASE" = trayhost ]; then
   run scenario_trayHostOnly
 else
   for s in spawn viewTags moveToTag focus masterCount masterWidth floating floatingKeys fullscreen close \
-           tagOps order reload typing dragMove dragResize barClick barScroll clickFocus \
+           tagOps order reload input typing dragMove dragResize barClick barScroll clickFocus \
            appRules scratchpad statusBar trayIcons trayClick trayUpdate trayVanish \
            menuOpen menuActivate menuToggle menuDisabled menuSubmenu menuKeyboard menuDismiss \
            menuReopen trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore; do

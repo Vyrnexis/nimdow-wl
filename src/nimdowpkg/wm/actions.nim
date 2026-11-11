@@ -4,6 +4,7 @@ import
   types,
   outputs,
   debug,
+  inputconfig,
   clientlist,
   monitor,
   area,
@@ -256,6 +257,8 @@ proc reloadConfig*(this: WindowManager) =
 
   for monitor in this.monitors.mvalues():
     monitor.setConfig(this.config)
+
+  applyInput(this.config.input)
 
   # trayEnabled may have changed: start or stop the tray.
   if this.tray != nil and this.tray.alive:

@@ -244,6 +244,30 @@ scenario_reload() {
   expect "tag 1" 'M.selectedTags == [1] and F.app_id == "e2e-term"'
 }
 
+scenario_input() {
+  begin input
+  local kb='[.input.devices[] | select(.type == "keyboard")]'
+  expect "the keymap was accepted by River" '.input.keymap == "success"'
+  # Nested River only has virtual and nested-backend devices: no libinput devices,
+  # so the touchpad/mouse part is not testable here (see tests/nimdowpkg/config).
+  expect "a keyboard device exists" "$kb | length >= 1"
+  expect "repeat info sent to every keyboard" \
+    "$kb | all(.repeat == {rate: 30, delay: 400})"
+  expect "the keymap was set on the xkb keyboards, with the variant" \
+    "[$kb[] | select(.xkb != null)] | length >= 1 and all(.xkb.keymapSet and (.xkb.layout | test(\"intl\")))"
+  expect "numlock follows the setting" \
+    "[$kb[] | select(.xkb != null)] | all(.xkb.numlock == 1)"
+  # Hotplug is not testable: River does not list nimdowinput's virtual keyboards as input
+  # devices. The devices above are applied as they are announced at startup (same path).
+  # Reload: the keymap is sent again and the bindings keep working.
+  key super+shift+r
+  expect "keymap sent again after the reload" \
+    '.input.keymap == "success" and ([.input.devices[] | select(.xkb != null)] | all(.xkb.keymapSet))'
+  key super+2
+  expect "bindings work with the new keymap" 'M.selectedTags == [2]'
+  key super+1
+}
+
 scenario_typing() {
   begin typing
   local file="$OUT/typed.txt"

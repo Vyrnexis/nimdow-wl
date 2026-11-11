@@ -149,6 +149,37 @@ exec = [
   # See config/keys.nim for details
   modKey = "super"
 
+# Input devices. Every key is optional: a key that is not set leaves the compositor's
+# or libinput's default alone, so without this section nothing changes.
+# Invalid values are logged and ignored. Settings apply at startup, when a device is
+# plugged in and on config reload; a key removed later keeps its value until River
+# restarts (or the device is replugged).
+# Needs River 0.5 (river_input_manager_v1, river_xkb_config_v1, river_libinput_config_v1).
+
+# Tap to click. More settings (all optional, see config.default.toml for the full list):
+[input.keyboard]
+  #layout = "us"
+  #variant = ""
+  #options = "caps:escape"
+  #repeatRate = 25
+  #repeatDelay = 600
+  #numlock = true
+
+[input.touchpad]
+  tap = true
+  #naturalScroll = false
+  #disableWhileTyping = true
+  #accelSpeed = 0.0
+  #accelProfile = "adaptive"
+  #clickMethod = "clickfinger"
+  #scrollMethod = "twofinger"
+
+[input.mouse]
+  #naturalScroll = false
+  #accelSpeed = 0.0
+  #accelProfile = "flat"
+  #leftHanded = false
+
 # Window manager controls
 [controls]
   [controls.reloadConfig]

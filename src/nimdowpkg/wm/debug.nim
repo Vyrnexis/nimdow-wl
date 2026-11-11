@@ -8,7 +8,8 @@ import
   ../tray/traymenu,
   ../wl/protocols/[river_window_management_v1, river_xkb_bindings_v1, river_layer_shell_v1],
   ../sys/logger,
-  listutils
+  listutils,
+  inputconfig
 
 proc clientJson(this: WindowManager, client: Client, focused: Client): JsonNode =
   var tags: seq[int]
@@ -79,6 +80,7 @@ proc dumpState*(this: WindowManager, path: string) =
   for client in this.unassigned:
     unassigned.add this.clientJson(client, focused)
   let state = %*{
+    "input": inputconfig.dumpJson(),
     "menu": (if this.menu != nil: this.menu.dumpJson(this.tray) else: %*{"open": false}),
     "monitors": monitors,
     "scratchpad": scratch,

@@ -25,6 +25,13 @@ command = "alacritty --class e2e-term --title e2e-term -e sleep 3600"
 keys = [ "Return" ]
 modifiers = [ "super" ]
 
+# Stays bound while the session is locked (asserted by the lock scenario).
+[[startProcess]]
+command = "alacritty --class e2e-locked --title e2e-locked -e sleep 3600"
+keys = [ "o" ]
+modifiers = [ "super" ]
+whileLocked = true
+
 # Example: Start process when region is clicked, see github wiki for what constitutes a region
 # [[startProcess]]
 # command = "notify-send \"Id: %1, rx: %2, cx: %4, cy: %5, w: %6, b: %7\""
@@ -49,6 +56,7 @@ exec = [
   numlock = true
 
 [settings]
+  lockCommand = "\"$E2E_LOCKCLIENT\" > \"$E2E_LOCKOUT\""
   # Deterministic tray icon lookup (see tests/e2e/fake_sni.py).
   trayIconTheme = "Adwaita"
   # Window settings
@@ -93,6 +101,10 @@ exec = [
 
 # Window manager controls
 [controls]
+  [controls.lockSession]
+  keys = [ "Escape" ]
+  modifiers = [ "super" ]
+
   [controls.reloadConfig]
   keys = [ "r" ]
   modifiers = [ "super", "shift" ]

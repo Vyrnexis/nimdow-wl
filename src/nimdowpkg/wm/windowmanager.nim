@@ -54,11 +54,21 @@ proc wmManageStart(data: pointer, obj: RiverWindowManagerV1) {.cdecl.} =
 proc wmRenderStart(data: pointer, obj: RiverWindowManagerV1) {.cdecl.} =
   wm.onRenderStart()
 
+# The bindings follow in the next manage sequence (`syncSeats`), which River
+# starts after these events.
+proc wmSessionLocked(data: pointer, obj: RiverWindowManagerV1) {.cdecl.} =
+  wm.locked = true
+
+proc wmSessionUnlocked(data: pointer, obj: RiverWindowManagerV1) {.cdecl.} =
+  wm.locked = false
+
 var wmListener = river_window_manager_v1_noop_listener()
 wmListener.unavailable = wmUnavailable
 wmListener.finished = wmFinished
 wmListener.manage_start = wmManageStart
 wmListener.render_start = wmRenderStart
+wmListener.session_locked = wmSessionLocked
+wmListener.session_unlocked = wmSessionUnlocked
 wmListener.window = wmWindow
 wmListener.output = wmOutput
 wmListener.seat = wmSeat

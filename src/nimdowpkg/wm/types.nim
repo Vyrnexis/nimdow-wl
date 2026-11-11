@@ -112,6 +112,9 @@ type
     ## Key combos pressed since the last manage sequence.
     pressedCombos*: seq[KeyCombo]
     bindingsDirty*: bool
+    ## The session is locked (ext-session-lock): the bindings are disabled,
+    ## except the `whileLocked` ones. `lockApplied` is what the bindings show.
+    locked*, lockApplied*: bool
 
 var wm*: WindowManager
 

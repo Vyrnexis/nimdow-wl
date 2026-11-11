@@ -2,6 +2,7 @@ import
   nimtest,
   os,
   parsetoml,
+  sets,
   tables,
   config/configloader,
   config/keys,
@@ -399,6 +400,48 @@ describe "Input settings":
     config.load(parseConfig(""))
     assert config.input.touchpad.tap.isNone
 
+describe "Screen lock config":
+
+  it "defaults lockCommand and reads it from [settings]":
+    assert newConfig().lockCommand == "swaylock -f -c 282828"
+    let config = loaded """
+    [settings]
+    lockCommand = "gtklock"
+    """
+    assert config.lockCommand == "gtklock"
+
+  it "marks only the startProcess entries with whileLocked = true":
+    let config = loaded """
+    [[startProcess]]
+    command = "a"
+    keys = [ "F1" ]
+    modifiers = []
+    whileLocked = true
+
+    [[startProcess]]
+    command = "b"
+    keys = [ "F2" ]
+    modifiers = []
+    whileLocked = false
+
+    [[startProcess]]
+    command = "c"
+    keys = [ "F3" ]
+    modifiers = []
+    """
+    assert config.keyComboTable.len == 3
+    assert config.whileLockedCombos == [("F1", 0'u32)].toHashSet
+
+  it "registers the lockSession control":
+    let config = newConfig()
+    config.configureAction($wmcLockSession, noop)
+    config.load(parseConfig """
+    [controls.lockSession]
+    keys = [ "Escape" ]
+    modifiers = [ "super" ]
+    """)
+    assert config.keyComboTable.hasKey(("Escape", ModifierTable["super"]))
+
 describe "Desktop package config":
 
   it "parses and wires the desktop programs":
@@ -423,7 +466,13 @@ describe "Desktop package config":
     var cmds: seq[string]
     for c in autostart: cmds.add c.stringVal
     assert cmds == @["swaybg -i /usr/share/backgrounds/nimdow-wl/reverie.jpg -m fill -c '#282828'", "mako",
-      "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1", "nimdow-wl-status"]
+      "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1", "nimdow-wl-status",
+      "swayidle -w timeout 600 'swaylock -f -c 282828' timeout 900 'systemctl suspend' before-sleep 'swaylock -f -c 282828'"]
     for key in ["XF86AudioRaiseVolume", "XF86AudioLowerVolume", "XF86AudioMute", "XF86AudioMicMute",
                 "XF86MonBrightnessUp", "XF86MonBrightnessDown", "Print"]:
       assert config.keyComboTable.hasKey((key, 0'u32)), key
+    for key in ["XF86AudioMute", "XF86MonBrightnessUp"]:
+      assert (key, 0'u32) in config.whileLockedCombos, key
+    assert ("Print", 0'u32) notin config.whileLockedCombos
+    assert config.keyComboTable.hasKey(("Escape", ModifierTable["super"]))
+    assert config.lockCommand == "swaylock -f -c 282828"

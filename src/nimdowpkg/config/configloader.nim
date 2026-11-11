@@ -2,6 +2,7 @@ import
   os,
   options,
   parsetoml,
+  sets,
   strutils,
   tables
 
@@ -135,6 +136,8 @@ type
   Config* = ref object
     actionIdentifierTable*: Table[string, Action]
     keyComboTable*: Table[KeyCombo, Action]
+    ## The combos (of `keyComboTable`) that stay bound while the session is locked.
+    whileLockedCombos*: HashSet[KeyCombo]
     keyIndex: Table[KeyIdentity, KeyCombo]
       ## One canonical KeyCombo per keysym + modifiers, so "r" and "R" share a binding.
     regionClickActionTable*: Table[int, RegionClickAction]
@@ -146,6 +149,7 @@ type
     ## 1-based index of the monitor (in screen order) whose bar shows the tray; 0 follows the selected monitor.
     trayMonitor*: int
     trayIconTheme*: string
+    lockCommand*: string
     defaultMonitorSettings*: MonitorSettings
     # Specific monitor settings
     monitorSettings*: Table[MonitorID, MonitorSettings]
@@ -184,6 +188,7 @@ proc newConfig*(): Config =
   Config(
     actionIdentifierTable: initTable[string, Action](),
     keyComboTable: initTable[KeyCombo, Action](),
+    whileLockedCombos: initHashSet[KeyCombo](),
     windowSettings: WindowSettings(
       borderColorUnfocused: 0x1c1b19,
       borderColorFocused: 0x519f50,
@@ -203,7 +208,8 @@ proc newConfig*(): Config =
     loggingEnabled: false,
     trayEnabled: true,
     trayMonitor: 1,
-    reverseTagScrolling: false
+    reverseTagScrolling: false,
+    lockCommand: "swaylock -f -c 282828"
   )
 
 # Typed accessors for config values: a missing key yields none, a value of the
@@ -296,16 +302,20 @@ template guarded(what: string, body: untyped) =
 proc configureAction*(this: Config, actionName: string, actionInvokee: Action) =
   this.actionIdentifierTable[actionName] = actionInvokee
 
-proc registerCombo(this: Config, keyCombo: KeyCombo, action: Action) =
+proc registerCombo(this: Config, keyCombo: KeyCombo, action: Action, whileLocked = false) =
   ## Binds `action` to the combo; an equivalent combo spelled differently is replaced.
   let identity: KeyIdentity = (keyCombo.key.toKeysym(), keyCombo.modifiers)
+  var combo = keyCombo
   if this.keyIndex.hasKey(identity):
-    let existing = this.keyIndex[identity]
-    log "Key \"" & keyCombo.key & "\" duplicates \"" & existing.key & "\"; using the later binding", lvlWarn
-    this.keyComboTable[existing] = action
+    combo = this.keyIndex[identity]
+    log "Key \"" & keyCombo.key & "\" duplicates \"" & combo.key & "\"; using the later binding", lvlWarn
   else:
     this.keyIndex[identity] = keyCombo
-    this.keyComboTable[keyCombo] = action
+  this.keyComboTable[combo] = action
+  if whileLocked:
+    this.whileLockedCombos.incl combo
+  else:
+    this.whileLockedCombos.excl combo
 
 proc getModifierMask(modifier: TomlValueRef): Option[uint32] =
   if modifier.kind != TomlValueKind.String:
@@ -363,11 +373,13 @@ proc getKeyCombos(configTable: TomlTable, action: string): seq[KeyCombo] =
       continue
     result.add((key, modifiers.get))
 
-proc populateControlAction(this: Config, action: string, configTable: TomlTable) =
+proc populateControlAction(
+  this: Config, action: string, configTable: TomlTable, whileLocked = false
+) =
   let keyCombos = getKeyCombos(configTable, action)
   for keyCombo in keyCombos:
     if this.actionIdentifierTable.hasKey(action):
-      this.registerCombo(keyCombo, this.actionIdentifierTable[action])
+      this.registerCombo(keyCombo, this.actionIdentifierTable[action], whileLocked)
     else:
       raise newException(Exception, "Invalid key config action: \"" & action & "\" does not exist")
 
@@ -521,7 +533,9 @@ proc populateExternalProcessSettings(this: Config, configTable: TomlTable) =
               )
       else:
         this.configureExternalProcess(command)
-        this.populateControlAction(command, declaration[])
+        this.populateControlAction(
+          command, declaration[], declaration.getBool("whileLocked").get(false)
+        )
 
 proc removeTransparencyFromHexColor(color: int): int =
   return color or (0xff shl 24)
@@ -626,6 +640,7 @@ proc populateGeneralSettings*(this: Config, configTable: TomlTable) =
   setIfSome this.trayEnabled, settingsTable.getBool("trayEnabled")
   setIfSome this.trayMonitor, settingsTable.getInt("trayMonitor").map(proc(v: int): int = max(0, v))
   setIfSome this.trayIconTheme, settingsTable.getStr("trayIconTheme")
+  setIfSome this.lockCommand, settingsTable.getStr("lockCommand")
   setIfSome this.reverseTagScrolling, settingsTable.getBool("reverseTagScrolling")
 
   # Scratchpad settings

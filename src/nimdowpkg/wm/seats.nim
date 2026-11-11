@@ -45,6 +45,22 @@ proc destroyBindings(seat: Seat) =
     GC_unref binding
   seat.pointerBindings.setLen 0
 
+proc isActive*(this: WindowManager, combo: KeyCombo): bool =
+  not this.locked or combo in this.config.whileLockedCombos
+
+proc applyLock(this: WindowManager, seat: Seat) =
+  ## Enables or disables the existing bindings for the lock state.
+  for binding in seat.xkbBindings:
+    if this.isActive(binding.combo):
+      river_xkb_binding_v1_enable(binding.obj)
+    else:
+      river_xkb_binding_v1_disable(binding.obj)
+  for binding in seat.pointerBindings:
+    if this.locked:
+      river_pointer_binding_v1_disable(binding.obj)
+    else:
+      river_pointer_binding_v1_enable(binding.obj)
+
 proc createBindings(this: WindowManager, seat: Seat) =
   for combo in this.config.keyComboTable.keys():
     let binding = XkbBinding(combo: combo)
@@ -55,7 +71,8 @@ proc createBindings(this: WindowManager, seat: Seat) =
     discard river_xkb_binding_v1_add_listener(
       binding.obj, addr xkbBindingListener, cast[pointer](binding)
     )
-    river_xkb_binding_v1_enable(binding.obj)
+    if this.isActive(combo):
+      river_xkb_binding_v1_enable(binding.obj)
     seat.xkbBindings.add binding
 
   # modKey + left button moves, modKey + right button resizes.
@@ -67,7 +84,8 @@ proc createBindings(this: WindowManager, seat: Seat) =
     discard river_pointer_binding_v1_add_listener(
       binding.obj, addr pointerBindingListener, cast[pointer](binding)
     )
-    river_pointer_binding_v1_enable(binding.obj)
+    if not this.locked:
+      river_pointer_binding_v1_enable(binding.obj)
     seat.pointerBindings.add binding
 
 proc layerFocusExclusive(data: pointer, obj: RiverLayerShellSeatV1) {.cdecl.} =
@@ -142,6 +160,8 @@ proc syncSeats*(this: WindowManager) =
       seat.destroyBindings()
       this.createBindings(seat)
       seat.isNew = false
+    elif this.locked != this.lockApplied:
+      this.applyLock(seat)
   for seat in gone:
     seat.destroyBindings()
     if seat.layerSeat != nil:
@@ -150,6 +170,7 @@ proc syncSeats*(this: WindowManager) =
     this.seats.dropAt seat
     GC_unref seat
   this.bindingsDirty = false
+  this.lockApplied = this.locked
 
 # ---------------------------------------------------------------------------
 # Status bar clicks

@@ -280,7 +280,8 @@ proc onManageStart*(this: WindowManager) =
   let combos = this.pressedCombos
   this.pressedCombos.setLen 0
   for combo in combos:
-    if this.selectedMonitor != nil and this.config.keyComboTable.hasKey(combo):
+    if this.selectedMonitor != nil and this.config.keyComboTable.hasKey(combo) and
+       this.isActive(combo):
       try:
         this.config.keyComboTable[combo](combo)
       except CatchableError:

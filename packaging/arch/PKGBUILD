@@ -70,7 +70,7 @@ package_nimdow-wl-git() {
 package_nimdow-wl-desktop-git() {
   pkgdesc='Complete nimdow-wl desktop: notifications, polkit agent, launcher, status bar, portals and default config'
   arch=('any')
-  depends=(nimdow-wl-git polkit-gnome mako swaybg xdg-desktop-portal-gtk xorg-xwayland
+  depends=(nimdow-wl-git polkit-gnome mako swaybg swaylock swayidle xdg-desktop-portal-gtk xorg-xwayland
            gnome-keyring kitty nimlaunch-bin nimdow-wl-status wl-clipboard grim slurp
            libnotify pipewire pipewire-pulse wireplumber brightnessctl networkmanager
            ttf-meslo-nerd pacman-contrib rtkit pavucontrol)

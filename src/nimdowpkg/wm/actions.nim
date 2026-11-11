@@ -13,7 +13,8 @@ import
   masterstack,
   commands,
   ../wl/protocols/[river_window_management_v1, river_xkb_bindings_v1, river_layer_shell_v1],
-  ../sys/logger
+  ../sys/logger,
+  ../sys/spawn
 
 proc mapConfigActions*(this: WindowManager)
 
@@ -417,6 +418,10 @@ proc mapConfigActions*(this: WindowManager) =
   # Ends the whole River session (killing nimdow alone leaves River running).
   createControl(keyCombo, $wmcExitSession):
     river_window_manager_v1_exit_session(this.manager)
+
+  createControl(keyCombo, $wmcLockSession):
+    if not spawnShell(this.config.lockCommand):
+      log "Failed to start the lock command: " & this.config.lockCommand, lvlWarn
 
 proc runAction(this: WindowManager, command: string, key: string) =
   ## Runs a configured action, never letting its failure take the manager down.

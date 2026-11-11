@@ -49,6 +49,7 @@ type
     wmcStatus = "status"
     wmcDumpState = "dumpstate"
     wmcExitSession = "exitsession"
+    wmcLockSession = "locksession"
 
 proc parseCommand*(command: string): Option[WMCommand] =
   try:

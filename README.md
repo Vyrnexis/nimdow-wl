@@ -45,7 +45,7 @@ See [Install (Arch / AUR)](#install-arch--aur) below. `nimdow-wl-git` can be ins
 - `nimdow-wl-git`: the window manager only (River integration, systemd user target, portal config, man page).
 - `nimdow-wl-desktop-git`: a complete desktop on a minimal install. It pulls in `nimdow-wl-git` and ships
   `/etc/xdg/nimdow-wl/config.toml` (kitty, nimlaunch, firefox on super+i, volume/brightness/screenshot keys, status bar
-  click actions, autostarted swaybg (with the "Reverie" wallpaper, `/usr/share/backgrounds/nimdow-wl/reverie.jpg`), mako, polkit agent and `nimdow-wl-status`) and
+  click actions, autostarted swaybg (with the "Reverie" wallpaper, `/usr/share/backgrounds/nimdow-wl/reverie.jpg`), mako, polkit agent, `nimdow-wl-status` and swayidle, which locks with swaylock after 10 minutes and before suspend) and
   `/etc/xdg/nimdow-wl/status.toml` (the status bar segments).
 
 ```sh
@@ -56,7 +56,7 @@ river -c nimdow-wl                # from a TTY, or install a login manager (sddm
 
 On first login the desktop configs are copied to `~/.config/nimdow-wl/config.toml` and
 `~/.config/nimdow-wl/status.toml`; edit those copies.
-`nimdow-wl-desktop-git` depends on: `nimdow-wl-git polkit-gnome mako swaybg xdg-desktop-portal-gtk xorg-xwayland
+`nimdow-wl-desktop-git` depends on: `nimdow-wl-git polkit-gnome mako swaybg swaylock swayidle xdg-desktop-portal-gtk xorg-xwayland
 gnome-keyring kitty nimlaunch-bin nimdow-wl-status wl-clipboard grim slurp libnotify pipewire pipewire-pulse
 wireplumber brightnessctl networkmanager ttf-meslo-nerd pacman-contrib`. Optional: `pavucontrol`, `nautilus`,
 `adw-gtk-theme`, `network-manager-applet`, `sddm`, `greetd-tuigreet`.
@@ -127,6 +127,15 @@ The settings are applied at startup, when a device appears and on config reload 
 sent to a device that reports support for it. Removing a key from the config does not undo it until River restarts.
 `nimdow-wl --dumpState` shows the keymap result and what each device reports. The desktop package enables
 `[input.touchpad] tap = true`.
+
+### Screen lock
+
+The `lockSession` control (default Super+Escape) runs `lockCommand` (`[settings]`, default
+`swaylock -f -c 282828`). While River reports the session as locked (`ext-session-lock`), nimdow-wl disables all key
+and pointer bindings, so window controls do nothing behind the lock screen. A `[[startProcess]]` entry with
+`whileLocked = true` stays active, e.g. for the volume and brightness keys (the desktop package does this).
+`nimdow-wl --dumpState` shows `locked`. The desktop package also autostarts swayidle (lock after 10 minutes, suspend
+after 15, lock before sleep).
 
 ### Status bar text
 

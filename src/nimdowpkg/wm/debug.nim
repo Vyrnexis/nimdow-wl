@@ -80,6 +80,7 @@ proc dumpState*(this: WindowManager, path: string) =
   for client in this.unassigned:
     unassigned.add this.clientJson(client, focused)
   let state = %*{
+    "locked": this.locked,
     "input": inputconfig.dumpJson(),
     "menu": (if this.menu != nil: this.menu.dumpJson(this.tray) else: %*{"open": false}),
     "monitors": monitors,

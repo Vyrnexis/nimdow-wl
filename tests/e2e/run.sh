@@ -54,13 +54,25 @@ RESULTS="$OUT/results.txt"
 # ---------------------------------------------------------------------------
 if [ "$MODE" = outer ]; then
   export PATH="$HOME/.nimble/bin:$PATH"
-  for tool in river grim alacritty jq dbus-run-session python3; do
+  for tool in river grim alacritty jq dbus-run-session python3 gcc wayland-scanner; do
     command -v "$tool" >/dev/null || { echo "missing tool: $tool"; exit 2; }
   done
   if [ "$BUILD" = 1 ] || [ ! -x "$ROOT/bin/nimdow-wl" ] || [ ! -x "$ROOT/bin/nimdowinput" ]; then
     (cd "$ROOT" &&
       nim c --hints:off -o:bin/nimdow-wl --deepcopy:on src/nimdow.nim &&
       nim c --hints:off -o:bin/nimdowinput tests/e2e/nimdowinput.nim) || exit 2
+  fi
+
+  # The lock test client (ext-session-lock), built from lockclient.c.
+  if [ "$BUILD" = 1 ] || [ ! -x "$ROOT/bin/lockclient" ]; then
+    LOCKGEN="$(mktemp -d /tmp/ndlock.XXXXXX)"
+    LOCKXML="$(pkg-config --variable=pkgdatadir wayland-protocols)/staging/ext-session-lock/ext-session-lock-v1.xml"
+    (wayland-scanner client-header "$LOCKXML" "$LOCKGEN/ext-session-lock-v1-client-protocol.h" &&
+      wayland-scanner private-code "$LOCKXML" "$LOCKGEN/ext-session-lock-v1-protocol.c" &&
+      mkdir -p "$ROOT/bin" &&
+      gcc -Wall -I"$LOCKGEN" -o "$ROOT/bin/lockclient" "$ROOT/tests/e2e/lockclient.c" \
+        "$LOCKGEN/ext-session-lock-v1-protocol.c" -lwayland-client) || { rm -rf "$LOCKGEN"; exit 2; }
+    rm -rf "$LOCKGEN"
   fi
 
   rm -f "$OUT"/*.png "$OUT"/*.log "$OUT"/*.json "$OUT"/typed.txt "$RESULTS"
@@ -137,7 +149,7 @@ if [ "$MODE" = outer ]; then
     fullscreen close tagOps order reload input typing dragMove dragResize barClick barScroll \
     clickFocus appRules scratchpad statusBar trayIcons trayClick trayUpdate trayVanish \
     menuOpen menuActivate menuToggle menuDisabled menuSubmenu menuKeyboard menuDismiss menuReopen \
-    trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore exitSession
+    trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore lock exitSession
   rm -rf "$RT"
 
   echo
@@ -165,11 +177,13 @@ export WAYLAND_DISPLAY="$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY"
 export XDG_RUNTIME_DIR="$E2E_RT"
 # Never touch the real systemd user session (env export, autostart target).
 export NIMDOW_NO_SESSION=1
+# The lockCommand of tests/e2e/config.toml (a test lock client, see scenarios/lock.sh).
+export E2E_LOCKCLIENT="$ROOT/bin/lockclient" E2E_LOCKOUT="$OUT/lock.out"
 # Harness helpers and scenario definitions (functions only; run order is below).
 E2E_DIR="$ROOT/tests/e2e"
 # shellcheck source=tests/e2e/lib.sh
 . "$E2E_DIR/lib.sh"
-for f in core tray menu; do
+for f in core tray menu lock; do
   # shellcheck source=/dev/null
   . "$E2E_DIR/scenarios/$f.sh"
 done
@@ -212,7 +226,7 @@ else
            tagOps order reload input typing dragMove dragResize barClick barScroll clickFocus \
            appRules scratchpad statusBar trayIcons trayClick trayUpdate trayVanish \
            menuOpen menuActivate menuToggle menuDisabled menuSubmenu menuKeyboard menuDismiss \
-           menuReopen trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore; do
+           menuReopen trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore lock; do
     run "scenario_$s"
   done
   reset

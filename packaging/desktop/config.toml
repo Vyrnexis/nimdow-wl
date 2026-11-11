@@ -30,35 +30,42 @@ keys = [ "Return" ]
 modifiers = [ "super" ]
 
 # --- Media, brightness and screenshot keys (no modifiers) ---
+# whileLocked = true keeps a key working on the lock screen.
 [[startProcess]]
 command = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
 keys = [ "XF86AudioRaiseVolume" ]
 modifiers = []
+whileLocked = true
 
 [[startProcess]]
 command = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%-"
 keys = [ "XF86AudioLowerVolume" ]
 modifiers = []
+whileLocked = true
 
 [[startProcess]]
 command = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
 keys = [ "XF86AudioMute" ]
 modifiers = []
+whileLocked = true
 
 [[startProcess]]
 command = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
 keys = [ "XF86AudioMicMute" ]
 modifiers = []
+whileLocked = true
 
 [[startProcess]]
 command = "brightnessctl set 5%+"
 keys = [ "XF86MonBrightnessUp" ]
 modifiers = []
+whileLocked = true
 
 [[startProcess]]
 command = "brightnessctl set 5%-"
 keys = [ "XF86MonBrightnessDown" ]
 modifiers = []
+whileLocked = true
 
 # Select a region and copy the screenshot to the clipboard
 [[startProcess]]
@@ -94,6 +101,7 @@ exec = [
   "mako",
   "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1",
   "nimdow-wl-status",
+  "swayidle -w timeout 600 'swaylock -f -c 282828' timeout 900 'systemctl suspend' before-sleep 'swaylock -f -c 282828'",
 ]
 
 # Theme: Gruvbox Dark (matches kitty / noctalia). Fonts: MesloLGS Nerd Font.
@@ -336,6 +344,11 @@ exec = [
 
   [controls.rotateClients]
   keys = [ "r" ]
+  modifiers = [ "super" ]
+
+  [controls.lockSession]
+  # Runs lockCommand (default: swaylock -f -c 282828).
+  keys = [ "Escape" ]
   modifiers = [ "super" ]
 
   [controls.exitSession]

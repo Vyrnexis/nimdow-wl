@@ -103,7 +103,7 @@ check "bar is visible" grep -Eq '"barVisible": ?true' "$R/state.json"
 check "first-run config copied from /etc/xdg" cmp -s /etc/xdg/nimdow-wl/config.toml ~/.config/nimdow-wl/config.toml
 
 sleep 10   # autostart + session units
-for p in mako swaybg nimdow-wl-statu; do check "autostart: $p running" pgrep -u "$(id -u)" -x "$p"; done
+for p in mako swaybg swayidle nimdow-wl-statu; do check "autostart: $p running" pgrep -u "$(id -u)" -x "$p"; done
 check "autostart: polkit-gnome agent running" pgrep -u "$(id -u)" -f polkit-gnome-authentication-agent-1
 check "nimdow-wl-session.target active" systemctl --user is-active nimdow-wl-session.target
 check "graphical-session.target active" systemctl --user is-active graphical-session.target

@@ -61,6 +61,18 @@ table of the config file.
 .
 .PP
 The
+.B lockSession
+control runs the
+.B lockCommand
+setting (default
+.IR "swaylock -f -c 282828" ).
+While the session is locked all key and pointer bindings are disabled, except the
+.B [[startProcess]]
+entries with
+.BR "whileLocked = true" .
+.
+.PP
+The
 .B [input.keyboard]
 table sets the xkb keymap
 .RB ( layout ", " variant ", " options ", " model ),

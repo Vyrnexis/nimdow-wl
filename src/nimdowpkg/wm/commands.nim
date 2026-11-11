@@ -30,6 +30,15 @@ type
     wmcToggleFullscreen = "togglefullscreen",
     wmcDestroySelectedWindow = "destroyselectedwindow",
     wmcToggleFloating = "togglefloating",
+    wmcMoveFloatingLeft = "movefloatingleft",
+    wmcMoveFloatingDown = "movefloatingdown",
+    wmcMoveFloatingUp = "movefloatingup",
+    wmcMoveFloatingRight = "movefloatingright",
+    wmcResizeFloatingNarrower = "resizefloatingnarrower",
+    wmcResizeFloatingTaller = "resizefloatingtaller",
+    wmcResizeFloatingShorter = "resizefloatingshorter",
+    wmcResizeFloatingWider = "resizefloatingwider",
+    wmcCenterFloating = "centerfloating",
     wmcJumpToUrgentWindow = "jumptourgentwindow"
     wmcIncreaseMasterWidth = "increasemasterwidth"
     wmcDecreaseMasterWidth = "decreasemasterwidth"

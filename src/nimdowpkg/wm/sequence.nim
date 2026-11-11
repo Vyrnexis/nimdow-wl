@@ -307,6 +307,14 @@ proc centerOnMonitor(client: Client, monitor: Monitor) =
   if client.width == 0 or client.height == 0:
     return
   let area = monitor.usableArea()
+  # Larger than the usable area: use the floating percentages instead.
+  let settings = monitor.windowSettings
+  if client.totalWidth > area.width.int:
+    client.width = percentArea(
+      area, settings.floatingWidth, settings.floatingHeight, client.borderWidth).width
+  if client.totalHeight > area.height.int:
+    client.height = percentArea(
+      area, settings.floatingWidth, settings.floatingHeight, client.borderWidth).height
   client.x = (area.x.float + (area.width.float - client.totalWidth.float) / 2).int
   client.y = (area.y.float + (area.height.float - client.totalHeight.float) / 2).int
   client.needsCenter = false

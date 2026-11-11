@@ -75,6 +75,10 @@ type
     borderColorUrgent*: int
     borderWidth*: uint
     modKey*: int
+    ## Size (percent of the usable area) of a tiled window made floating.
+    floatingWidth*, floatingHeight*: int
+    ## Pixels per keyboard move/resize of a floating window.
+    floatingStep*: int
   BarSettings* = object
     height*: uint
     windowTitlePosition*: WindowTitlePosition
@@ -160,7 +164,10 @@ proc newConfig*(): Config =
       borderColorFocused: 0x519f50,
       borderColorUrgent: 0xff5555,
       borderWidth: 1,
-      modKey: ModifierTable["super"].int
+      modKey: ModifierTable["super"].int,
+      floatingWidth: 50,
+      floatingHeight: 50,
+      floatingStep: 40
     ),
     scratchpadSettings: ScratchpadSettings(
       width: 500,
@@ -544,6 +551,12 @@ proc populateGeneralSettings*(this: Config, configTable: TomlTable) =
   # Window settings
   setIfSome this.windowSettings.borderWidth,
     settingsTable.getInt("borderWidth").map(proc(v: int): uint = max(0, v).uint)
+  for (key, field) in [("floatingWidth", addr this.windowSettings.floatingWidth),
+                       ("floatingHeight", addr this.windowSettings.floatingHeight)]:
+    let percent = settingsTable.getInt(key, 10)
+    if percent.isSome:
+      field[] = min(percent.get, 100)
+  setIfSome this.windowSettings.floatingStep, settingsTable.getInt("floatingStep", 1)
   for (key, field) in [("borderColorUnfocused", addr this.windowSettings.borderColorUnfocused),
                        ("borderColorFocused", addr this.windowSettings.borderColorFocused),
                        ("borderColorUrgent", addr this.windowSettings.borderColorUrgent)]:

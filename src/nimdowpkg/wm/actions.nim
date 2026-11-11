@@ -370,6 +370,22 @@ proc mapConfigActions*(this: WindowManager) =
   createControl(keyCombo, $wmcToggleFloating):
     this.selectedMonitor.toggleFloatingForSelectedClient()
 
+  const floatingSteps = [
+    ($wmcMoveFloatingLeft, -1, 0, 0, 0), ($wmcMoveFloatingDown, 0, 1, 0, 0),
+    ($wmcMoveFloatingUp, 0, -1, 0, 0), ($wmcMoveFloatingRight, 1, 0, 0, 0),
+    ($wmcResizeFloatingNarrower, 0, 0, -1, 0), ($wmcResizeFloatingTaller, 0, 0, 0, 1),
+    ($wmcResizeFloatingShorter, 0, 0, 0, -1), ($wmcResizeFloatingWider, 0, 0, 1, 0)
+  ]
+  for i in 0 ..< floatingSteps.len:
+    closureScope:
+      let (id, dx, dy, dw, dh) = floatingSteps[i]
+      createControl(keyCombo, id):
+        let step = this.selectedMonitor.windowSettings.floatingStep
+        this.selectedMonitor.adjustFloating(dx * step, dy * step, dw * step, dh * step)
+
+  createControl(keyCombo, $wmcCenterFloating):
+    this.selectedMonitor.centerFloating()
+
   createControl(keyCombo, $wmcJumpToUrgentWindow):
     this.jumpToUrgentWindow()
 

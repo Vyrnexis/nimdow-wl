@@ -131,6 +131,11 @@ exec = [
   gapSize = 8
   outerGap = 0
   resizeStep = 10
+  # Floating windows: size (% of the usable area) of a tiled window made floating,
+  # and pixels per keyboard move/resize step
+  floatingWidth = 50
+  floatingHeight = 50
+  floatingStep = 40
   # Scratchpad settings
   scratchpadWidth = 500
   scratchpadHeight = 300
@@ -208,6 +213,42 @@ exec = [
 
   [controls.toggleFloating]
   keys = [ "space" ]
+  modifiers = [ "super" ]
+
+  [controls.moveFloatingLeft]
+  keys = [ "h" ]
+  modifiers = [ "super", "control" ]
+
+  [controls.moveFloatingDown]
+  keys = [ "j" ]
+  modifiers = [ "super", "control" ]
+
+  [controls.moveFloatingUp]
+  keys = [ "k" ]
+  modifiers = [ "super", "control" ]
+
+  [controls.moveFloatingRight]
+  keys = [ "l" ]
+  modifiers = [ "super", "control" ]
+
+  [controls.resizeFloatingNarrower]
+  keys = [ "h" ]
+  modifiers = [ "super", "control", "shift" ]
+
+  [controls.resizeFloatingTaller]
+  keys = [ "j" ]
+  modifiers = [ "super", "control", "shift" ]
+
+  [controls.resizeFloatingShorter]
+  keys = [ "k" ]
+  modifiers = [ "super", "control", "shift" ]
+
+  [controls.resizeFloatingWider]
+  keys = [ "l" ]
+  modifiers = [ "super", "control", "shift" ]
+
+  [controls.centerFloating]
+  keys = [ "c" ]
   modifiers = [ "super" ]
 
   [controls.jumpToUrgentWindow]

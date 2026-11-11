@@ -64,6 +64,8 @@ type
     minWidth*, minHeight*, maxWidth*, maxHeight*: int
     ## parent/dimensions_hint changed; re-evaluated in the next manage sequence.
     hintsDirty*: bool
+    ## Last floating area, relative to its monitor's origin (width 0: none yet).
+    floatArea*: Area
     ## Place the (floating) client in the middle of its monitor once its size is known.
     needsCenter*: bool
     ## An app rule matched and was applied.

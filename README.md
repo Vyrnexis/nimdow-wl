@@ -152,7 +152,14 @@ exist on Wayland). It needs the D-Bus session bus.
   the rules are evaluated again and apply tags and floating/fullscreen state, but never the monitor.
 - Floating windows (rules, scratchpad, dialogs) are placed and clamped inside the usable area (the output minus
   layer-shell exclusive zones and the bar). Auto-floated windows are centered at their own size.
-- New settings: `barTagPadding` (space on each side of a tag label, default `8`), the tray and menu settings.
+- Toggling a tiled window to floating (super+space) centers it at `floatingWidth` x `floatingHeight` percent
+  (default `50` x `50`, 10 to 100) of the usable area the first time, and restores its last floating geometry
+  afterwards (super+drag included). A new floating window larger than the usable area is shrunk to those percentages.
+- Floating windows can be moved with super+ctrl+h/j/k/l (`moveFloatingLeft/Down/Up/Right`), resized with
+  super+ctrl+shift+h/j/k/l (`resizeFloatingNarrower/Taller/Shorter/Wider`) and centered with super+c
+  (`centerFloating`). They do nothing on tiled windows. `floatingStep` (default `40`) is the pixels per step; windows
+  keep at least 50 px size and 50 px on screen.
+- New settings: `floatingWidth`, `floatingHeight`, `floatingStep`, `barTagPadding` (space on each side of a tag label, default `8`), the tray and menu settings.
 - No urgency hints. The Java window-manager workarounds from the X11 README do not apply.
 
 ## Command line

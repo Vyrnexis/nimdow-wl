@@ -421,19 +421,39 @@ proc toggleFullscreenForSelectedClient*(this: Monitor) =
   this.taggedClients.withSomeCurrClient(client):
     this.setFullscreen(client, not client.isFullscreen)
 
-proc setFloating*(this: Monitor, client: Client, floating: bool) =
+proc setFloating*(this: Monitor, client: Client, floating: bool, fit = false) =
   ## Changes the client's floating state and relayouts. A floating client keeps
-  ## the area it had (the last tiled area when it was tiled before).
+  ## the area it had (the last tiled area when it was tiled before), unless
+  ## `fit`: it then gets its last floating area, or is centered at the
+  ## floatingWidth x floatingHeight percentages of the usable area.
   if floating == client.isFloating:
     return
 
   client.isFloating = floating
 
-  if floating:
+  if not floating:
+    if client.width > 0 and client.height > 0:
+      client.floatArea = (
+        client.x - this.area.x, client.y - this.area.y, client.width, client.height
+      )
+  else:
     if client.borderWidth == 0:
       client.borderWidth = this.windowSettings.borderWidth
+    let usable = this.usableArea()
+    if fit:
+      let settings = this.windowSettings
+      if client.floatArea.width > 0:
+        let last = client.floatArea
+        client.area = clampFloating(
+          (this.area.x + last.x, this.area.y + last.y, last.width, last.height),
+          usable, client.borderWidth
+        )
+      else:
+        client.area = percentArea(
+          usable, settings.floatingWidth, settings.floatingHeight, client.borderWidth
+        )
+      client.needsCenter = false
     let
-      usable = this.usableArea()
       maxWidth = usable.width.int - client.borderWidth.int * 2
       maxHeight = usable.height.int - client.borderWidth.int * 2
     if client.width.int > maxWidth and maxWidth > 0:
@@ -447,7 +467,27 @@ proc toggleFloatingForSelectedClient*(this: Monitor) =
   this.taggedClients.withSomeCurrClient(client):
     if client.isFixedSize or client.isFullscreen:
       return
-    this.setFloating(client, not client.isFloating)
+    this.setFloating(client, not client.isFloating, fit = true)
+
+proc adjustFloating*(this: Monitor, dx, dy, dw, dh: int) =
+  ## Moves/resizes the selected client by the deltas if it is floating.
+  this.taggedClients.withSomeCurrClient(client):
+    if client.isFloating and not client.isFullscreen and client.width > 0:
+      client.area = clampFloating(
+        (
+          client.x + dx, client.y + dy,
+          max(client.width.int + dw, 0).uint, max(client.height.int + dh, 0).uint
+        ),
+        this.usableArea(), client.borderWidth
+      )
+
+proc centerFloating*(this: Monitor) =
+  ## Centers the selected client in the usable area if it is floating.
+  this.taggedClients.withSomeCurrClient(client):
+    if client.isFloating and not client.isFullscreen and client.width > 0:
+      client.area = centeredArea(
+        this.usableArea(), client.width, client.height, client.borderWidth
+      )
 
 proc findNext*(monitors: openArray[Monitor], current: Monitor): int =
   ## Finds the next monitor index from index `i` (exclusive), iterating forward.

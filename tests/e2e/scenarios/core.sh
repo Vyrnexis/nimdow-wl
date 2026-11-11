@@ -109,6 +109,52 @@ scenario_floating() {
   expect "toggled back to tiled" '(F.floating | not)'
 }
 
+scenario_floatingKeys() {
+  begin floatingKeys
+  spawn_key super+Return e2e-term 1
+  key super+ctrl+l
+  expect "move keys do nothing on a tiled window" '(F.floating | not)'
+  key super+space
+  expect "first float: 50% of the usable area, centered" \
+    "F.floating and ((F.width + 2 * F.borderWidth) - $WIDTH / 2 | fabs) <= 2
+       and ((F.height + 2 * F.borderWidth) - ($HEIGHT - $BAR) / 2 | fabs) <= 2
+       and ((F.x + (F.width + 2 * F.borderWidth) / 2) - $WIDTH / 2 | fabs) <= 2
+       and ((F.y + (F.height + 2 * F.borderWidth) / 2) - ($BAR + ($HEIGHT - $BAR) / 2) | fabs) <= 2"
+  shot floatingKeys
+  local x0 y0 w0 h0
+  x0="$(q 'F.x')"; y0="$(q 'F.y')"; w0="$(q 'F.width')"; h0="$(q 'F.height')"
+  key super+ctrl+l
+  expect "moved right by the step" "F.x == $x0 + 40 and F.y == $y0 and F.width == $w0"
+  key super+ctrl+j
+  expect "moved down by the step" "F.x == $x0 + 40 and F.y == $y0 + 40"
+  key super+ctrl+h
+  key super+ctrl+k
+  expect "moved back left and up" "F.x == $x0 and F.y == $y0"
+  key super+ctrl+shift+l
+  expect "wider by the step" "F.width == $w0 + 40 and F.height == $h0 and F.x == $x0"
+  key super+ctrl+shift+j
+  expect "taller by the step" "F.width == $w0 + 40 and F.height == $h0 + 40"
+  key super+ctrl+shift+h
+  key super+ctrl+shift+k
+  expect "narrower and shorter by the step" "F.width == $w0 and F.height == $h0"
+  key super+ctrl+l
+  key super+ctrl+shift+l
+  expect "moved and widened" "F.x == $x0 + 40 and F.width == $w0 + 40"
+  key super+c
+  expect "centered again" \
+    "((F.x + (F.width + 2 * F.borderWidth) / 2) - $WIDTH / 2 | fabs) <= 2
+       and ((F.y + (F.height + 2 * F.borderWidth) / 2) - ($BAR + ($HEIGHT - $BAR) / 2) | fabs) <= 2
+       and F.width == $w0 + 40"
+  key super+ctrl+j
+  local x1 y1 w1 h1
+  x1="$(q 'F.x')"; y1="$(q 'F.y')"; w1="$(q 'F.width')"; h1="$(q 'F.height')"
+  key super+space
+  expect "tiled again" '(F.floating | not)'
+  key super+space
+  expect "floating again restores the last floating geometry" \
+    "F.floating and F.x == $x1 and F.y == $y1 and F.width == $w1 and F.height == $h1"
+}
+
 scenario_fullscreen() {
   begin fullscreen
   spawn_key super+Return e2e-term 1

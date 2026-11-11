@@ -179,6 +179,27 @@ describe "Config settings":
     assert config.defaultMonitorSettings.layoutSettings.outerGap == 4
     assert config.trayIconTheme == "Papirus"
 
+  it "reads the floating settings and keeps the defaults for bad values":
+    var config = loaded "[settings]\n"
+    assert (config.windowSettings.floatingWidth, config.windowSettings.floatingHeight,
+      config.windowSettings.floatingStep) == (50, 50, 40)
+    config = loaded """
+    [settings]
+    floatingWidth = 70
+    floatingHeight = 300
+    floatingStep = 25
+    """
+    assert (config.windowSettings.floatingWidth, config.windowSettings.floatingHeight,
+      config.windowSettings.floatingStep) == (70, 100, 25)
+    config = loaded """
+    [settings]
+    floatingWidth = 0
+    floatingHeight = "tall"
+    floatingStep = 0
+    """
+    assert (config.windowSettings.floatingWidth, config.windowSettings.floatingHeight,
+      config.windowSettings.floatingStep) == (50, 50, 40)
+
   it "survives an unknown modKey":
     var config = loaded """
     [settings]

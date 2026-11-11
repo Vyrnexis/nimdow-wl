@@ -43,7 +43,21 @@ where %p is the PID of nimdow-wl
 .
 .PP
 Floating windows are supported,
-and can be moved/resized with the mouse while holding a modifier key.
+and can be moved/resized with the mouse while holding a modifier key,
+or with the keyboard (super+ctrl+h/j/k/l moves, super+ctrl+shift+h/j/k/l resizes, super+c centers).
+A tiled window made floating is centered at
+.B floatingWidth
+x
+.B floatingHeight
+percent (default 50 x 50) of the usable area the first time,
+and gets its last floating geometry back afterwards.
+The settings
+.BR floatingWidth ", " floatingHeight
+(10 to 100) and
+.B floatingStep
+(pixels, default 40) are in the
+.B [settings]
+table of the config file.
 .
 .SH STARTING
 Select the
@@ -191,6 +205,22 @@ Destroys the selected window.
 .TP
 .BR --toggle-floating
 Toggles the floating state of the selected window.
+.
+.TP
+.BR --move-floating-left ", " --move-floating-down ", " --move-floating-up ", " --move-floating-right
+Moves the selected floating window by
+.B floatingStep
+pixels.
+.
+.TP
+.BR --resize-floating-narrower ", " --resize-floating-taller ", " --resize-floating-shorter ", " --resize-floating-wider
+Resizes the selected floating window by
+.B floatingStep
+pixels.
+.
+.TP
+.BR --center-floating
+Centers the selected floating window in the usable area.
 .
 .TP
 .BR --jump-to-urgent-window

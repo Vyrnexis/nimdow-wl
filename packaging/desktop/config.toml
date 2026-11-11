@@ -1,24 +1,26 @@
+# nimdow-wl desktop defaults (installed to /etc/xdg/nimdow-wl/config.toml and copied to
+# ~/.config/nimdow-wl/config.toml on first login; edit that copy, then press super+shift+r to reload).
+
 # App Rules
-# Example:
-# [[appRule]]
-# class = "foot"   # class and instance are both matched against the window's app_id
-# instance = "foot"
-# title = "foot"
+# class and instance are both matched against the window's app_id. Optional keys:
+# instance, monitor = 1, tags = [ 1, 4, 7 ], state = "normal" | "floating" | "fullscreen".
+[[appRule]]
+class = "nimlaunch"
+title = "nimlaunch"
 # monitor = 1
 # tags = [ 1, 4, 7 ]
-# state = "floating" # normal, floating, and fullscreen are all valid.
+state = "floating"
 
 # Start external programs
 [[startProcess]]
-command = "$BROWSER"
+command = "firefox"
 keys = [ "i" ]
 modifiers = [ "super" ]
 
-# Application launcher (nimlaunch). Any Wayland launcher works, e.g. fuzzel.
+# Application launcher, any Wayland launcher works (fuzzel, wofi, tofi, ...).
 [[startProcess]]
-#command = "fuzzel"
 command = "nimlaunch"
-keys = [ "p" ]
+keys = [ "d" ]
 modifiers = [ "super" ]
 
 # Terminal
@@ -27,7 +29,7 @@ command = "kitty"
 keys = [ "Return" ]
 modifiers = [ "super" ]
 
-# Media, brightness and screenshot keys (no modifier)
+# --- Media, brightness and screenshot keys (no modifiers) ---
 [[startProcess]]
 command = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
 keys = [ "XF86AudioRaiseVolume" ]
@@ -64,53 +66,69 @@ command = "sh -c 'grim -g \"$(slurp)\" - | wl-copy'"
 keys = [ "Print" ]
 modifiers = []
 
-# Status bar clicks. nimdow-wl-status segments, in order: 1 memory, 2 cpu, 3 battery,
-# 4 network, 5 date/time (region 0 is the window title).
+# --- nimdow-wl-status click regions (%7 = button: 1 left, 3 right, 4/5 scroll) ---
+# Regions follow the segment order in ~/.config/nimdow-wl/status.toml: 1 updates, 2 weather, 3 memory,
+# 4 volume, 5 battery, 6 date/time, 7 network (region 0 is the window title).
 [[startProcess]]
-command = "kitty --title Network -e nmtui"
+command = "kitty --title 'Arch updates' -e sh -c 'if command -v paru >/dev/null; then paru -Syu; elif command -v yay >/dev/null; then yay -Syu; else sudo pacman -Syu; fi; echo; printf \"Press Enter to close\"; read _'"
+clickRegion = 1
+
+[[startProcess]]
+command = "kitty --title Weather -e sh -c 'curl -s wttr.in; printf \"Press Enter to close\"; read _'"
+clickRegion = 2
+
+[[startProcess]]
+command = "sh -c 'case %7 in 4) wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+ ;; 5) wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%- ;; 1) wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle ;; 3) pavucontrol ;; esac'"
 clickRegion = 4
 
+[[startProcess]]
+command = "kitty --title Network -e nmtui"
+clickRegion = 7
+
 # The bar text is provided by nimdow-wl-status (it calls `nimdow-wl --status`).
+# Wallpaper: "Reverie" (/usr/share/backgrounds/nimdow-wl/reverie.jpg)
+# (use any image with swaybg -i; a solid colour only: swaybg -c '#282828')
 [autostart]
 exec = [
-  "swaybg -c '#282828'",
+  "swaybg -i /usr/share/backgrounds/nimdow-wl/reverie.jpg -m fill -c '#282828'",
   "mako",
   "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1",
   "nimdow-wl-status",
 ]
 
+# Theme: Gruvbox Dark (matches kitty / noctalia). Fonts: MesloLGS Nerd Font.
 [settings]
   # Window settings
-  borderWidth = 1
-  borderColorUnfocused = "#282a36"
-  borderColorFocused = "#50fa7b"
-  borderColorUrgent = "#ff5555"
+  borderWidth = 2
+  borderColorUnfocused = "#3c3836"
+  borderColorFocused = "#b8bb26"
+  borderColorUrgent = "#fb4934"
   # Bar settings
-  barHeight = 20
+  barHeight = 30
   # System tray (StatusNotifierItem, see README). Icon size is barHeight - 2 * trayIconPadding.
   trayEnabled = true
   trayMonitor = 1 # 1 = the first monitor's bar, 2 = the second, ...; 0 = follow the selected monitor
-  trayIconPadding = 2
-  trayIconSpacing = 4
+  trayIconPadding = 4
+  trayIconSpacing = 6
   #trayIconTheme = "Adwaita" # default: gtk-icon-theme-name from ~/.config/gtk-{3,4}.0/settings.ini, else Adwaita
   windowTitlePosition = "center"
-  barBackgroundColor = "#282a36"
-  barForegroundColor = "#f8f8f2"
-  barSelectionColor = "#50fa7b"
-  #menuBorderColor = "#50fa7b" # tray context menus; default: barSelectionColor
-  #menuWidthMin = 150
-  barUrgentColor = "#ff5555"
-  barHasWindowsColor = "#f5e0dc"
-  barShowIndicator = false
-  #barTagPadding = 8 # space on each side of a tag label
+  barBackgroundColor = "#282828"
+  barForegroundColor = "#ebdbb2"
+  barSelectionColor = "#fabd2f"
+  menuBorderColor = "#b8bb26"
+  menuWidthMin = 180
+  barUrgentColor = "#fb4934"
+  barHasWindowsColor = "#83a598"
+  barShowIndicator = true
+  barTagPadding = 12 # space on each side of a tag label
   barTransparency = 255 # 0 to 255
-  # ttf-meslo-nerd provides the status bar icons.
+  # ttf-meslo-nerd provides the nerd-font icons.
   barFonts = [
-    "MesloLGS Nerd Font:size=10:antialias=true",
-    "NotoColorEmoji:size=10:antialias=true"
+    "MesloLGS Nerd Font:size=12:antialias=true",
+    "NotoColorEmoji:size=12:antialias=true"
   ]
   # Layout settings
-  gapSize = 12
+  gapSize = 8
   outerGap = 0
   resizeStep = 10
   # Scratchpad settings
@@ -154,7 +172,7 @@ exec = [
 
   [controls.destroySelectedWindow]
   keys = [ "q" ]
-  modifiers = [ "super", "shift" ]
+  modifiers = [ "super" ]
 
   [controls.goToPreviousTag]
   keys = [ "w" ]
@@ -276,3 +294,16 @@ exec = [
   # [monitors.2.tags]
   # 2.displayString = "too"
 
+
+# Tags: Nerd Font numeric boxes (nf-md-numeric_N_box)
+[monitors]
+  [monitors.default.tags]
+  1.displayString = "󰎤"  # numeric-1-box
+  2.displayString = "󰎧"  # numeric-2-box
+  3.displayString = "󰎪"  # numeric-3-box
+  4.displayString = "󰎭"  # numeric-4-box
+  5.displayString = "󰎱"  # numeric-5-box
+  6.displayString = "󰎳"  # numeric-6-box
+  7.displayString = "󰎶"  # numeric-7-box
+  8.displayString = "󰎹"  # numeric-8-box
+  9.displayString = "󰎼"  # numeric-9-box

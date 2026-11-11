@@ -1,0 +1,87 @@
+# nimdow-wl-status config, installed to /etc/xdg/nimdow-wl/status.toml and copied to
+# ~/.config/nimdow-wl/status.toml on first run; edit that copy.
+# Saved edits reload live. Check a file without applying it:  nimdow-wl-status --check-config
+# Segment order = bar order = click region number = SIGRTMIN+N. The click actions for each
+# region are defined in ~/.config/nimdow-wl/config.toml.
+# Helper scripts live in /usr/share/nimdow-wl-status/scripts (updates.sh, weather.sh, volume.sh).
+
+[bar]
+style = "angle_b"   # arrow arrow_l arrow_r circle circle_l circle_r angle_a angle_b none
+text_colour = "#2D2C2B"         # unset: nimdow-wl's barForegroundColor
+
+[colours]
+alert      = "#F76125"
+background = "#EBDBB2"
+
+# 1 pending updates (script; arg = colour while pacman runs)
+[[segment]]
+module = "command"
+command = "/usr/share/nimdow-wl-status/scripts/updates.sh alert"
+icon = "󰣇 "
+colour = "background"
+show_always = true
+interval = 600
+timeout = 60
+
+# 2 weather (script; optional arg = location, e.g. weather.sh London; default: geolocated by IP)
+[[segment]]
+module = "command"
+command = "/usr/share/nimdow-wl-status/scripts/weather.sh"
+icon = " "
+colour = "background"
+interval = 600
+
+# 3
+[[segment]]
+module = "memory"
+icon = "󰍛 "
+colour = "background"
+interval = 2
+method = "htop"     # or "available"
+decimals = 2
+
+# 4 volume (stream script; args = volume icon, mute icon)
+[[segment]]
+module = "stream"
+command = "/usr/share/nimdow-wl-status/scripts/volume.sh '  ' '󰖁 '"
+colour = "background"
+
+# 5
+[[segment]]
+module = "battery"
+colour = "background"
+interval = 5
+icons = [" ", "󰂎 ", "󱊡 ", "󱊢 ", "󱊢 ", "󱊣 "]  # charging, empty, low, half, 3qtr, full
+
+# 6
+[[segment]]
+module = "datetime"
+icon = "󰸗  "
+colour = "background"
+format = "ddd d MMM HH:mm "   # add ":ss" to tick every second
+
+# 7
+[[segment]]
+module = "net"
+colour = "background"
+show_always = true
+interval = 5
+icon_wifi = " "
+icon_ethernet = "󰈀"
+icon_disconnected = "󰌙 "
+show_ssid = false
+
+# Built-in CPU usage, if you want it:
+#[[segment]]
+#module = "cpu"
+#icon = " "
+#colour = "background"
+
+# Your own script:
+#[[segment]]
+#module = "command"
+#icon = " "
+#colour = "background"
+#interval = 60
+#command = "uptime -p | sed 's/^up //; s/ hours\\?/h/; s/ minutes\\?/m/; s/ days\\?/d/; s/,//g'"
+#hide_on_error = true

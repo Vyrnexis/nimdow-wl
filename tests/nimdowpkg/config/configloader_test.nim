@@ -288,12 +288,14 @@ describe "Desktop package config":
     for name, control in table["controls"].tableVal.pairs:
       expected += control["keys"].arrayVal.len
     assert config.keyComboTable.len >= expected
-    assert config.regionClickActionTable.hasKey(4)
-    assert config.defaultMonitorSettings.barSettings.fonts[0].startsWith("MesloLGS Nerd Font")
+    for region in [1, 2, 4, 7]:
+      assert config.regionClickActionTable.hasKey(region), $region
+    assert config.defaultMonitorSettings.barSettings.fonts[0] == "MesloLGS Nerd Font:size=12:antialias=true"
+    assert config.defaultMonitorSettings.barSettings.height == 30
     let autostart = table["autostart"]["exec"].arrayVal
     var cmds: seq[string]
     for c in autostart: cmds.add c.stringVal
-    assert cmds == @["swaybg -c '#282828'", "mako",
+    assert cmds == @["swaybg -i /usr/share/backgrounds/nimdow-wl/reverie.jpg -m fill -c '#282828'", "mako",
       "/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1", "nimdow-wl-status"]
     for key in ["XF86AudioRaiseVolume", "XF86AudioLowerVolume", "XF86AudioMute", "XF86AudioMicMute",
                 "XF86MonBrightnessUp", "XF86MonBrightnessDown", "Print"]:

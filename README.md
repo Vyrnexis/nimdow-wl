@@ -42,8 +42,9 @@ See [Install (Arch / AUR)](#install-arch--aur) below. `nimdow-wl-git` can be ins
 
 - `nimdow-wl-git`: the window manager only (River integration, systemd user target, portal config, man page).
 - `nimdow-wl-desktop-git`: a complete desktop on a minimal install. It pulls in `nimdow-wl-git` and ships
-  `/etc/xdg/nimdow-wl/config.toml` (kitty, nimlaunch, volume/brightness/screenshot keys, autostarted swaybg, mako,
-  polkit agent and `nimdow-wl-status`).
+  `/etc/xdg/nimdow-wl/config.toml` (kitty, nimlaunch, firefox on super+i, volume/brightness/screenshot keys, status bar
+  click actions, autostarted swaybg (with the "Reverie" wallpaper, `/usr/share/backgrounds/nimdow-wl/reverie.jpg`), mako, polkit agent and `nimdow-wl-status`) and
+  `/etc/xdg/nimdow-wl/status.toml` (the status bar segments).
 
 ```sh
 yay -S nimdow-wl-desktop-git      # or: cd packaging/arch && makepkg -si
@@ -51,7 +52,8 @@ sudo systemctl enable --now NetworkManager
 river -c nimdow-wl                # from a TTY, or install a login manager (sddm, greetd-tuigreet)
 ```
 
-On first login the desktop config is copied to `~/.config/nimdow-wl/config.toml`; edit that copy.
+On first login the desktop configs are copied to `~/.config/nimdow-wl/config.toml` and
+`~/.config/nimdow-wl/status.toml`; edit those copies.
 `nimdow-wl-desktop-git` depends on: `nimdow-wl-git polkit-gnome mako swaybg xdg-desktop-portal-gtk xorg-xwayland
 gnome-keyring kitty nimlaunch-bin nimdow-wl-status wl-clipboard grim slurp libnotify pipewire pipewire-pulse
 wireplumber brightnessctl networkmanager ttf-meslo-nerd pacman-contrib`. Optional: `pavucontrol`, `nautilus`,

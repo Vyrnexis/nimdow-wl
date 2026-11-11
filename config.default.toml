@@ -8,9 +8,11 @@
 # tags = [ 1, 4, 7 ]
 # state = "floating" # normal, floating, and fullscreen are all valid.
 
-# Start external programs
+# Start external programs. The optional description is what the key bindings
+# overlay (super+/) shows; without it the command is shown.
 [[startProcess]]
 command = "$BROWSER"
+# description = "Browser"
 keys = [ "i" ]
 modifiers = [ "super" ]
 
@@ -90,6 +92,8 @@ exec = [
   scratchpadHeight = 300
   # General settings
   lockCommand = "swaylock -f -c 282828"
+  # Show the key bindings overlay (super+/) when nimdow-wl starts.
+  hotkeyOverlayAtStartup = false
   loggingEnabled = false
   reverseTagScrolling = false
   # The key used for moving and resizing windows.
@@ -292,6 +296,11 @@ exec = [
 
   [controls.rotateClients]
   keys = [ "r" ]
+  modifiers = [ "super" ]
+
+  [controls.toggleHotkeyOverlay]
+  # Lists all key bindings; Escape, a click or this key closes the list.
+  keys = [ "slash" ]
   modifiers = [ "super" ]
 
   [controls.lockSession]

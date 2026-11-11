@@ -101,6 +101,10 @@ exec = [
 
 # Window manager controls
 [controls]
+  [controls.toggleHotkeyOverlay]
+  keys = [ "slash" ]
+  modifiers = [ "super" ]
+
   [controls.lockSession]
   keys = [ "Escape" ]
   modifiers = [ "super" ]

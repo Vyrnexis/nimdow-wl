@@ -5,6 +5,7 @@ import
   monitor,
   area,
   ../bar/statusbar,
+  ../bar/overlay as baroverlay,
   ../tray/traymenu,
   ../tray/tray,
   ../config/configloader,
@@ -47,6 +48,10 @@ type
     layerFocus*: LayerFocus
     xkbBindings*: seq[XkbBinding]
     pointerBindings*: seq[PointerBinding]
+    ## Escape without modifiers, enabled while the hotkey overlay is open (nil
+    ## when the config binds Escape itself).
+    escapeBinding*: XkbBinding
+    escapeOn*: bool
     ## Window under the pointer.
     hovered*: Window
     pointerX*, pointerY*: int32
@@ -115,8 +120,16 @@ type
     ## The session is locked (ext-session-lock): the bindings are disabled,
     ## except the `whileLocked` ones. `lockApplied` is what the bindings show.
     locked*, lockApplied*: bool
+    ## The hotkey overlay; nil without the bar. `overlayMonitor` is the monitor
+    ## it is shown on (nil: closed). `overlayStartupDone`: the
+    ## `hotkeyOverlayAtStartup` setting was handled.
+    overlay*: baroverlay.HotkeyOverlay
+    overlayMonitor*: Monitor
+    overlayStartupDone*: bool
 
 var wm*: WindowManager
+
+proc overlayOpen*(this: WindowManager): bool = this.overlayMonitor != nil
 
 proc markDirty*(this: WindowManager) =
   ## Ask River to start a manage sequence (used after actions that ran

@@ -35,7 +35,14 @@ const
   BtnLeft = 0x110'u32
   BtnRight = 0x111'u32
 
+const EscapeCombo* = ("Escape", 0'u32)
+
 proc destroyBindings(seat: Seat) =
+  if seat.escapeBinding != nil:
+    river_xkb_binding_v1_destroy(seat.escapeBinding.obj)
+    GC_unref seat.escapeBinding
+    seat.escapeBinding = nil
+    seat.escapeOn = false
   for binding in seat.xkbBindings:
     river_xkb_binding_v1_destroy(binding.obj)
     GC_unref binding
@@ -61,19 +68,33 @@ proc applyLock(this: WindowManager, seat: Seat) =
     else:
       river_pointer_binding_v1_enable(binding.obj)
 
+proc newXkbBinding(this: WindowManager, seat: Seat, combo: KeyCombo): XkbBinding =
+  result = XkbBinding(combo: combo)
+  result.obj = river_xkb_bindings_v1_get_xkb_binding(
+    this.xkbBindings, seat.obj, combo.key.toKeysym(), combo.modifiers
+  )
+  GC_ref result
+  discard river_xkb_binding_v1_add_listener(
+    result.obj, addr xkbBindingListener, cast[pointer](result)
+  )
+
+proc syncEscape(this: WindowManager, seat: Seat) =
+  ## Escape is only taken from the applications while the hotkey overlay is open.
+  if seat.escapeBinding != nil and seat.escapeOn != this.overlayOpen:
+    seat.escapeOn = this.overlayOpen
+    if seat.escapeOn:
+      river_xkb_binding_v1_enable(seat.escapeBinding.obj)
+    else:
+      river_xkb_binding_v1_disable(seat.escapeBinding.obj)
+
 proc createBindings(this: WindowManager, seat: Seat) =
   for combo in this.config.keyComboTable.keys():
-    let binding = XkbBinding(combo: combo)
-    binding.obj = river_xkb_bindings_v1_get_xkb_binding(
-      this.xkbBindings, seat.obj, combo.key.toKeysym(), combo.modifiers
-    )
-    GC_ref binding
-    discard river_xkb_binding_v1_add_listener(
-      binding.obj, addr xkbBindingListener, cast[pointer](binding)
-    )
+    let binding = this.newXkbBinding(seat, combo)
     if this.isActive(combo):
       river_xkb_binding_v1_enable(binding.obj)
     seat.xkbBindings.add binding
+  if EscapeCombo notin this.config.keyComboTable:
+    seat.escapeBinding = this.newXkbBinding(seat, EscapeCombo)
 
   # modKey + left button moves, modKey + right button resizes.
   let modKey = this.config.windowSettings.modKey.uint32
@@ -162,6 +183,8 @@ proc syncSeats*(this: WindowManager) =
       seat.isNew = false
     elif this.locked != this.lockApplied:
       this.applyLock(seat)
+    if not seat.removed:
+      this.syncEscape(seat)
   for seat in gone:
     seat.destroyBindings()
     if seat.layerSeat != nil:

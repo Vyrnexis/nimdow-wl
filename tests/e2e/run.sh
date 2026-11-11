@@ -149,7 +149,7 @@ if [ "$MODE" = outer ]; then
     fullscreen close tagOps order reload input typing dragMove dragResize barClick barScroll \
     clickFocus appRules scratchpad statusBar trayIcons trayClick trayUpdate trayVanish \
     menuOpen menuActivate menuToggle menuDisabled menuSubmenu menuKeyboard menuDismiss menuReopen \
-    trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore lock exitSession
+    trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore lock overlay exitSession
   rm -rf "$RT"
 
   echo
@@ -183,7 +183,7 @@ export E2E_LOCKCLIENT="$ROOT/bin/lockclient" E2E_LOCKOUT="$OUT/lock.out"
 E2E_DIR="$ROOT/tests/e2e"
 # shellcheck source=tests/e2e/lib.sh
 . "$E2E_DIR/lib.sh"
-for f in core tray menu lock; do
+for f in core tray menu lock overlay; do
   # shellcheck source=/dev/null
   . "$E2E_DIR/scenarios/$f.sh"
 done
@@ -226,7 +226,7 @@ else
            tagOps order reload input typing dragMove dragResize barClick barScroll clickFocus \
            appRules scratchpad statusBar trayIcons trayClick trayUpdate trayVanish \
            menuOpen menuActivate menuToggle menuDisabled menuSubmenu menuKeyboard menuDismiss \
-           menuReopen trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore lock; do
+           menuReopen trayTooltip menuHoverIntent menuKeyRepeat itemIsMenu trayNoMenu focusRestore lock overlay; do
     run "scenario_$s"
   done
   reset

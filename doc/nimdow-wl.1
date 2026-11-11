@@ -73,6 +73,22 @@ entries with
 .
 .PP
 The
+.B toggleHotkeyOverlay
+control (Super+/) lists all key bindings of the loaded config, centred on the focused output.
+Escape, a click or the key again closes it, as does locking the session.
+A
+.B [[startProcess]]
+entry can have a
+.B description
+that is shown instead of its command.
+With
+.B hotkeyOverlayAtStartup = true
+in
+.B [settings]
+the list opens when nimdow-wl starts.
+.
+.PP
+The
 .B [input.keyboard]
 table sets the xkb keymap
 .RB ( layout ", " variant ", " options ", " model ),

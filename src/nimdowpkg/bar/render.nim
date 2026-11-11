@@ -20,9 +20,9 @@ const
 # Drawing
 # ---------------------------------------------------------------------------
 
-type Color = tuple[r, g, b, a: float]
+type Color* = tuple[r, g, b, a: float]
 
-proc toColor(hex: int, alpha: uint8 = 255): Color =
+proc toColor*(hex: int, alpha: uint8 = 255): Color =
   (
     ((hex shr 16) and 0xff).float / 255,
     ((hex shr 8) and 0xff).float / 255,

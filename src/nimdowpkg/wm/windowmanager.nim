@@ -12,6 +12,7 @@ import
   seats,
   sequence,
   ../bar/statusbar,
+  ../bar/overlay,
   ../tray/traymenu,
   ../config/configloader,
   ../wl/client as wlclient,
@@ -125,6 +126,7 @@ proc newWindowManager*(config: Config, configTable: TomlTable): WindowManager =
   else:
     result.barCtx.requestManage = proc() = wm.markDirty()
     result.menu = newMenuManager(result.barCtx)
+    result.overlay = newHotkeyOverlay(result.barCtx)
 
   discard river_window_manager_v1_add_listener(result.manager, addr wmListener, nil)
   # Receive the initial globals (outputs, seats) before the event loop starts.

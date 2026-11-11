@@ -14,18 +14,21 @@ state = "floating"
 # Start external programs
 [[startProcess]]
 command = "firefox"
+description = "Browser"
 keys = [ "i" ]
 modifiers = [ "super" ]
 
 # Application launcher, any Wayland launcher works (fuzzel, wofi, tofi, ...).
 [[startProcess]]
 command = "nimlaunch"
+description = "Application launcher"
 keys = [ "d" ]
 modifiers = [ "super" ]
 
 # Terminal
 [[startProcess]]
 command = "kitty"
+description = "Terminal"
 keys = [ "Return" ]
 modifiers = [ "super" ]
 
@@ -33,36 +36,42 @@ modifiers = [ "super" ]
 # whileLocked = true keeps a key working on the lock screen.
 [[startProcess]]
 command = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%+"
+description = "Volume up"
 keys = [ "XF86AudioRaiseVolume" ]
 modifiers = []
 whileLocked = true
 
 [[startProcess]]
 command = "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ 5%-"
+description = "Volume down"
 keys = [ "XF86AudioLowerVolume" ]
 modifiers = []
 whileLocked = true
 
 [[startProcess]]
 command = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle"
+description = "Mute"
 keys = [ "XF86AudioMute" ]
 modifiers = []
 whileLocked = true
 
 [[startProcess]]
 command = "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle"
+description = "Mute microphone"
 keys = [ "XF86AudioMicMute" ]
 modifiers = []
 whileLocked = true
 
 [[startProcess]]
 command = "brightnessctl set 5%+"
+description = "Brightness up"
 keys = [ "XF86MonBrightnessUp" ]
 modifiers = []
 whileLocked = true
 
 [[startProcess]]
 command = "brightnessctl set 5%-"
+description = "Brightness down"
 keys = [ "XF86MonBrightnessDown" ]
 modifiers = []
 whileLocked = true
@@ -70,6 +79,7 @@ whileLocked = true
 # Select a region and copy the screenshot to the clipboard
 [[startProcess]]
 command = "sh -c 'grim -g \"$(slurp)\" - | wl-copy'"
+description = "Screenshot region to clipboard"
 keys = [ "Print" ]
 modifiers = []
 
@@ -106,6 +116,8 @@ exec = [
 
 # Theme: Gruvbox Dark (matches kitty / noctalia). Fonts: MesloLGS Nerd Font.
 [settings]
+  # List the key bindings when nimdow-wl starts (super+/ shows them again).
+  hotkeyOverlayAtStartup = true
   # Window settings
   borderWidth = 2
   borderColorUnfocused = "#3c3836"
@@ -344,6 +356,11 @@ exec = [
 
   [controls.rotateClients]
   keys = [ "r" ]
+  modifiers = [ "super" ]
+
+  [controls.toggleHotkeyOverlay]
+  # Lists all key bindings.
+  keys = [ "slash" ]
   modifiers = [ "super" ]
 
   [controls.lockSession]

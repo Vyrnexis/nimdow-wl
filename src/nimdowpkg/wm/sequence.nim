@@ -5,6 +5,7 @@ import
   outputs,
   windows,
   seats,
+  overlay,
   clientlist,
   monitor,
   area,
@@ -264,6 +265,7 @@ proc onManageStart*(this: WindowManager) =
         this.selectClient(client)
 
   this.handleBarClicks()
+  this.manageOverlay()
 
   # modKey + button: move/resize the window under the pointer.
   for seat in this.seats:
@@ -280,7 +282,9 @@ proc onManageStart*(this: WindowManager) =
   let combos = this.pressedCombos
   this.pressedCombos.setLen 0
   for combo in combos:
-    if this.selectedMonitor != nil and this.config.keyComboTable.hasKey(combo) and
+    if combo == EscapeCombo and this.overlayOpen:
+      this.closeOverlay()
+    elif this.selectedMonitor != nil and this.config.keyComboTable.hasKey(combo) and
        this.isActive(combo):
       try:
         this.config.keyComboTable[combo](combo)
@@ -403,6 +407,7 @@ proc applyRenderState(this: WindowManager) =
   # The tray menu above everything.
   if this.menu != nil:
     this.menu.flush()
+  this.flushOverlay()
 
 proc onRenderStart*(this: WindowManager) =
   this.applyRenderState()

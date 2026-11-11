@@ -50,6 +50,7 @@ type
     wmcDumpState = "dumpstate"
     wmcExitSession = "exitsession"
     wmcLockSession = "locksession"
+    wmcToggleHotkeyOverlay = "togglehotkeyoverlay"
 
 proc parseCommand*(command: string): Option[WMCommand] =
   try:

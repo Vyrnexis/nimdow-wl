@@ -137,6 +137,17 @@ and pointer bindings, so window controls do nothing behind the lock screen. A `[
 `nimdow-wl --dumpState` shows `locked`. The desktop package also autostarts swayidle (lock after 10 minutes, suspend
 after 15, lock before sleep).
 
+### Key bindings overlay
+
+Super+/ (the `toggleHotkeyOverlay` control) lists all key bindings of the loaded config in sections (Windows, Floating,
+Tags, Layout, Monitors, Scratchpad, Launch, Media & hardware, Session), centred on the focused output. Escape, a click
+on it or Super+/ again closes it, as does locking the session. A `[[startProcess]]` entry can have a
+`description = "Terminal"`, which is what the list shows instead of the command. With
+`hotkeyOverlayAtStartup = true` in `[settings]` the list opens when nimdow-wl starts (the desktop package sets it, so a
+new install shows its keys at first login). It uses the bar's fonts and colours (`barBackgroundColor`,
+`barForegroundColor`, `barSelectionColor`, `barHasWindowsColor`, `menuBorderColor`, `barTransparency`).
+`nimdow-wl --dumpState` shows `overlayVisible`.
+
 ### Status bar text
 
 nimdow-wl has no built-in clock or system info; a script sets the text:

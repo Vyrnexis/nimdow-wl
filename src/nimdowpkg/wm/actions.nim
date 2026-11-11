@@ -6,6 +6,7 @@ import
   debug,
   inputconfig,
   clientlist,
+  overlay,
   monitor,
   area,
   ../tray/tray,
@@ -422,6 +423,9 @@ proc mapConfigActions*(this: WindowManager) =
   createControl(keyCombo, $wmcLockSession):
     if not spawnShell(this.config.lockCommand):
       log "Failed to start the lock command: " & this.config.lockCommand, lvlWarn
+
+  createControl(keyCombo, $wmcToggleHotkeyOverlay):
+    this.toggleOverlay()
 
 proc runAction(this: WindowManager, command: string, key: string) =
   ## Runs a configured action, never letting its failure take the manager down.

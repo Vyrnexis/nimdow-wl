@@ -131,11 +131,20 @@ type
     barSettings*: BarSettings
     layoutSettings*: LayoutSettings
 
+  ## What a key combo runs, for the hotkey overlay: a control (`name` is its
+  ## lowercase name) or a startProcess entry (`name` is its command).
+  Binding* = object
+    name*: string
+    isProcess*: bool
+    description*: string
+
   MonitorID* = int
   KeyIdentity = tuple[keysym: uint32, modifiers: uint32]
   Config* = ref object
     actionIdentifierTable*: Table[string, Action]
     keyComboTable*: Table[KeyCombo, Action]
+    ## What each combo of `keyComboTable` is bound to, in config order.
+    bindings*: OrderedTable[KeyCombo, Binding]
     ## The combos (of `keyComboTable`) that stay bound while the session is locked.
     whileLockedCombos*: HashSet[KeyCombo]
     keyIndex: Table[KeyIdentity, KeyCombo]
@@ -150,6 +159,7 @@ type
     trayMonitor*: int
     trayIconTheme*: string
     lockCommand*: string
+    hotkeyOverlayAtStartup*: bool
     defaultMonitorSettings*: MonitorSettings
     # Specific monitor settings
     monitorSettings*: Table[MonitorID, MonitorSettings]
@@ -188,6 +198,7 @@ proc newConfig*(): Config =
   Config(
     actionIdentifierTable: initTable[string, Action](),
     keyComboTable: initTable[KeyCombo, Action](),
+    bindings: initOrderedTable[KeyCombo, Binding](),
     whileLockedCombos: initHashSet[KeyCombo](),
     windowSettings: WindowSettings(
       borderColorUnfocused: 0x1c1b19,
@@ -302,7 +313,9 @@ template guarded(what: string, body: untyped) =
 proc configureAction*(this: Config, actionName: string, actionInvokee: Action) =
   this.actionIdentifierTable[actionName] = actionInvokee
 
-proc registerCombo(this: Config, keyCombo: KeyCombo, action: Action, whileLocked = false) =
+proc registerCombo(
+  this: Config, keyCombo: KeyCombo, action: Action, binding: Binding, whileLocked = false
+) =
   ## Binds `action` to the combo; an equivalent combo spelled differently is replaced.
   let identity: KeyIdentity = (keyCombo.key.toKeysym(), keyCombo.modifiers)
   var combo = keyCombo
@@ -312,6 +325,7 @@ proc registerCombo(this: Config, keyCombo: KeyCombo, action: Action, whileLocked
   else:
     this.keyIndex[identity] = keyCombo
   this.keyComboTable[combo] = action
+  this.bindings[combo] = binding
   if whileLocked:
     this.whileLockedCombos.incl combo
   else:
@@ -374,12 +388,14 @@ proc getKeyCombos(configTable: TomlTable, action: string): seq[KeyCombo] =
     result.add((key, modifiers.get))
 
 proc populateControlAction(
-  this: Config, action: string, configTable: TomlTable, whileLocked = false
+  this: Config, binding: Binding, configTable: TomlTable, whileLocked = false
 ) =
-  let keyCombos = getKeyCombos(configTable, action)
+  let
+    action = binding.name
+    keyCombos = getKeyCombos(configTable, action)
   for keyCombo in keyCombos:
     if this.actionIdentifierTable.hasKey(action):
-      this.registerCombo(keyCombo, this.actionIdentifierTable[action], whileLocked)
+      this.registerCombo(keyCombo, this.actionIdentifierTable[action], binding, whileLocked)
     else:
       raise newException(Exception, "Invalid key config action: \"" & action & "\" does not exist")
 
@@ -488,7 +504,9 @@ proc populateControlsTable(this: Config, configTable: TomlTable) =
       log "Invalid control \"" & action & "\": expected a table with keys and modifiers", lvlError
     else:
       guarded "control \"" & action & "\"":
-        this.populateControlAction(($(commandOpt.get)).toLower(), controlToml.tableVal[])
+        this.populateControlAction(
+          Binding(name: ($(commandOpt.get)).toLower()), controlToml.tableVal[]
+        )
 
 proc populateExternalProcessSettings(this: Config, configTable: TomlTable) =
   if not configTable.hasKey("startProcess"):
@@ -534,7 +552,11 @@ proc populateExternalProcessSettings(this: Config, configTable: TomlTable) =
       else:
         this.configureExternalProcess(command)
         this.populateControlAction(
-          command, declaration[], declaration.getBool("whileLocked").get(false)
+          Binding(
+            name: command, isProcess: true,
+            description: declaration.getStr("description").get("")
+          ),
+          declaration[], declaration.getBool("whileLocked").get(false)
         )
 
 proc removeTransparencyFromHexColor(color: int): int =
@@ -641,6 +663,7 @@ proc populateGeneralSettings*(this: Config, configTable: TomlTable) =
   setIfSome this.trayMonitor, settingsTable.getInt("trayMonitor").map(proc(v: int): int = max(0, v))
   setIfSome this.trayIconTheme, settingsTable.getStr("trayIconTheme")
   setIfSome this.lockCommand, settingsTable.getStr("lockCommand")
+  setIfSome this.hotkeyOverlayAtStartup, settingsTable.getBool("hotkeyOverlayAtStartup")
   setIfSome this.reverseTagScrolling, settingsTable.getBool("reverseTagScrolling")
 
   # Scratchpad settings

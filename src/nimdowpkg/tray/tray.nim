@@ -11,8 +11,10 @@
 ##  * Items: the properties of each item are fetched with an asynchronous
 ##    Properties.GetAll; the item's New* signals schedule a (debounced) refetch.
 ##
-## Nothing here blocks: every call is `sd_bus_call_method_async` and the
-## callbacks only change the tray state and call `onChange`. The event loop
+## Nothing here blocks once connected: calls and signal matches are asynchronous
+## (`sd_bus_call_method_async`, `sd_bus_match_signal_async`) and the callbacks
+## only change the tray state and call `onChange`. Only `sd_bus_open_user` in
+## `newTray` connects synchronously, once at startup. The event loop
 ## (src/nimdow.nim) waits on `fd` with `events`/`timeoutMs` and calls `process`.
 ##
 ## Async call replies find their context through a request id passed as the
@@ -60,7 +62,7 @@ type
     service*, path*: string
     ## Unique bus name of the item (signals come from it).
     owner: string
-    ## The SNI ifaceName name that answered.
+    ## The SNI interface name that answered.
     iface*: string
     loaded*: bool
     id*, title*, tooltipTitle*, tooltipText*: string
@@ -779,7 +781,7 @@ proc watcherPropVersion(bus: SdBus, path, ifaceName, property: cstring, reply: S
     result = sd_bus_message_append(reply, "i", 0.cint)
 
 # ---------------------------------------------------------------------------
-# Public ifaceName
+# Public interface
 # ---------------------------------------------------------------------------
 
 proc shutdown(t: Tray) =
@@ -845,12 +847,12 @@ proc newTray*(iconTheme: string, onChange: proc() {.closure.}): Tray =
   result.hostName = "org.kde.StatusNotifierHost-" & $getpid()
   if nimdow_watcher_install(bus, nil, nil) < 0:
     log "tray: cannot export the watcher object", lvlWarn
-  discard sd_bus_match_signal(bus, nil, "org.freedesktop.DBus", "/org/freedesktop/DBus",
-    "org.freedesktop.DBus", "NameOwnerChanged", onNameOwnerChanged, nil)
+  discard sd_bus_match_signal_async(bus, nil, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+    "org.freedesktop.DBus", "NameOwnerChanged", onNameOwnerChanged, nil, nil)
   for iface in ItemInterfaces:
-    discard sd_bus_match_signal(bus, nil, nil, nil, iface.cstring, nil, onItemSignal, nil)
-  discard sd_bus_match_signal(bus, nil, nil, WatcherPath, WatcherName, nil,
-    onWatcherSignal, nil)
+    discard sd_bus_match_signal_async(bus, nil, nil, nil, iface.cstring, nil, onItemSignal, nil, nil)
+  discard sd_bus_match_signal_async(bus, nil, nil, WatcherPath, WatcherName, nil,
+    onWatcherSignal, nil, nil)
   result.requestName(result.hostName, DBUS_NAME_FLAG_DO_NOT_QUEUE, rkHostName)
   result.requestName(WatcherName, DBUS_NAME_FLAG_DO_NOT_QUEUE, rkWatcherName)
   result.process()
@@ -982,8 +984,8 @@ proc openMenu*(t: Tray, item: TrayItem, x, y: int) =
   t.menu = menu
   for member in ["LayoutUpdated", "ItemsPropertiesUpdated"]:
     var slot: SdBusSlot
-    if sd_bus_match_signal(t.bus, addr slot, menu.owner.cstring, menu.path.cstring,
-        MenuInterface, member.cstring, onMenuSignal, cast[pointer](menu.gen)) >= 0:
+    if sd_bus_match_signal_async(t.bus, addr slot, menu.owner.cstring, menu.path.cstring,
+        MenuInterface, member.cstring, onMenuSignal, nil, cast[pointer](menu.gen)) >= 0:
       menu.slots.add slot
   let req = t.newRequest(Request(kind: rkMenuAbout, gen: menu.gen, menuId: 0))
   if not callAboutToShow(t.bus, menu.service, menu.path, 0, onReply, req):

@@ -19,16 +19,12 @@ import
 
 proc mapConfigActions*(this: WindowManager)
 
-# ---------------------------------------------------------------------------
-# Actions
-# ---------------------------------------------------------------------------
-
 proc findRelativeTag*(this: WindowManager, offset: int): Tag =
   let selectedTag = this.selectedMonitor.taggedClients.findFirstSelectedTag
   if selectedTag.isNil:
     return
 
-  var tagNumber = abs((selectedTag.id + offset) mod this.selectedMonitor.tags.len)
+  var tagNumber = (selectedTag.id + offset) mod this.selectedMonitor.tags.len
   if tagNumber <= 0:
     tagNumber = this.selectedMonitor.tags.len
   return this.selectedMonitor.tags[tagNumber - 1]
@@ -183,47 +179,21 @@ proc popScratchpad(this: WindowManager) =
     let
       width = clamp(settings.width, 1, max(usable.width.int - client.borderWidth.int * 2, 1))
       height = clamp(settings.height, 1, max(usable.height.int - client.borderWidth.int * 2, 1))
-    client.area = (
-      usable.x + (usable.width.int - width - client.borderWidth.int * 2) div 2,
-      usable.y + (usable.height.int - height - client.borderWidth.int * 2) div 2,
-      width.uint,
-      height.uint
-    )
+    client.area = centeredArea(usable, width.uint, height.uint, client.borderWidth)
     client.isFloating = true
   else:
-    let
-      width = (if client.width > 0: client.width.int else: client.reportedWidth) +
-        client.borderWidth.int * 2
-      height = (if client.height > 0: client.height.int else: client.reportedHeight) +
-        client.borderWidth.int * 2
-    client.x = usable.x + (usable.width.int - width) div 2
-    client.y = usable.y + (usable.height.int - height) div 2
+    let centered = centeredArea(
+      usable,
+      (if client.width > 0: client.width.int else: max(client.reportedWidth, 0)).uint,
+      (if client.height > 0: client.height.int else: max(client.reportedHeight, 0)).uint,
+      client.borderWidth
+    )
+    client.x = centered.x
+    client.y = centered.y
   client.needsCenter = false
   monitor.addClient(client)
   this.warpMonitor = monitor
   this.warpClient = client
-
-proc jumpToUrgentWindow(this: WindowManager) =
-  ## Selects the first urgent client. River's window management protocol has no
-  ## urgency event, so nothing ever marks a client urgent (`Client.setUrgent`
-  ## is the hook for when it does); this is then a no-op.
-  for monitor in this.sortedMonitors():
-    for client in monitor.clientSelection:
-      if client.isUrgent and client.tagIDs != {}:
-        if not monitor.taggedClients.isOnSelectedTags(client):
-          for id in monitor.selectedTags:
-            monitor.previousTagID = id
-            break
-          for id in client.tagIDs:
-            monitor.setSelectedTags(id)
-            break
-        this.selectedMonitor = monitor
-        monitor.setSelectedClient(client)
-        this.warpMonitor = monitor
-        this.warpClient = client
-        return
-  log "jumpToUrgentWindow: no urgent windows (River has no urgency event, " &
-    "so windows are never marked urgent)", lvlInfo
 
 proc applyConfig*(this: WindowManager, config: Config, configTable: TomlTable) =
   ## Fills `config` from the config table and makes it the active config.
@@ -386,9 +356,6 @@ proc mapConfigActions*(this: WindowManager) =
 
   createControl(keyCombo, $wmcCenterFloating):
     this.selectedMonitor.centerFloating()
-
-  createControl(keyCombo, $wmcJumpToUrgentWindow):
-    this.jumpToUrgentWindow()
 
   createControl(keyCombo, $wmcIncreaseMasterWidth):
     this.increaseMasterWidth()

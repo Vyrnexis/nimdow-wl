@@ -20,8 +20,7 @@ type
 
   TaggedClients* = ref object
     clients*: DoublyLinkedList[Client]
-    # TODO: Needs a better name.
-    # This is the order of clients based on selection order, oldest to newest.
+    ## The order of clients based on selection order, oldest to newest.
     clientSelection*: seq[Client]
 
     tags*: seq[Tag]
@@ -109,10 +108,6 @@ iterator currClientsSelectionNewToOldIter*(this: TaggedClients): Client {.inline
     let client = this.clientSelection[i]
     if this.isOnSelectedTags(client):
       yield client
-
-proc findCurrentClients*(this: TaggedClients): seq[Client] =
-  for node in this.currClientsIter:
-    result.add(node.value)
 
 proc currClient*(this: TaggedClients): Client =
   ## Gets the most recently selected client in the list

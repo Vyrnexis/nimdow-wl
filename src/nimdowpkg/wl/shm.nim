@@ -3,7 +3,7 @@
 ## (`ScaledSurface`: wp_viewporter + wp_fractional_scale_v1, falling back to
 ## the integer wl_surface.preferred_buffer_scale).
 
-import std/[posix, monotimes]
+import std/posix
 
 import ../sys/logger
 import ./protocols/[wayland, viewporter, fractional_scale_v1]
@@ -13,8 +13,6 @@ proc memfd_create(name: cstring, flags: cuint): cint
 
 const
   MFD_CLOEXEC = 1.cuint
-  ## After a failed allocation the same size is not retried for this long.
-  retryBackoffMs = 2000'i64
 
 type
   ShmBuf = ref object
@@ -35,10 +33,6 @@ type
     buffers: array[2, ShmBuf]
     next: int
     pending: bool
-    failedW, failedH: int
-    failedAt: int64
-
-proc nowMonoMs(): int64 = getMonoTime().ticks div 1_000_000
 
 proc newShmPool*(shm: WlShm, name: cstring, onRelease: proc() {.closure.} = nil): ShmPool =
   ShmPool(shm: shm, name: name, onRelease: onRelease)
@@ -55,7 +49,7 @@ proc bufferRelease(data: pointer, obj: WlBuffer) {.cdecl.} =
 var bufferListener = wl_buffer_noop_listener()
 bufferListener.release = bufferRelease
 
-proc free*(pool: ShmPool) =
+proc destroy*(pool: ShmPool) =
   ## Destroys the buffers and unmaps the memory (a later `resize` allocates anew).
   for i in 0 .. pool.buffers.high:
     if pool.buffers[i] != nil:
@@ -109,23 +103,12 @@ proc allocate(pool: ShmPool, width, height: int): bool =
 
 proc resize*(pool: ShmPool, width, height: int): bool =
   ## Makes the buffers `width` x `height` physical pixels (a no-op when they
-  ## already are). False when the memory could not be allocated; the same size
-  ## is not retried (nor logged again) for a short while.
+  ## already are). False when the memory could not be allocated; nothing is
+  ## left half allocated then.
   if pool.mem != nil and pool.width == width and pool.height == height:
     return true
-  if pool.failedW == width and pool.failedH == height and
-      nowMonoMs() - pool.failedAt < retryBackoffMs:
-    return false
-  pool.free()
-  if pool.allocate(width, height):
-    pool.failedW = 0
-    pool.failedH = 0
-    return true
-  # Nothing is left half allocated: `allocate` only commits on success.
-  pool.failedW = width
-  pool.failedH = height
-  pool.failedAt = nowMonoMs()
-  return false
+  pool.destroy()
+  return pool.allocate(width, height)
 
 proc acquire*(pool: ShmPool): int =
   ## Index of a buffer the compositor does not hold, or -1 when both are busy
@@ -148,9 +131,6 @@ proc present*(pool: ShmPool, index: int, surface: WlSurface) =
   wl_surface_damage_buffer(surface, 0, 0, pool.width.int32, pool.height.int32)
   wl_surface_commit(surface)
   pool.buffers[index].busy = true
-
-proc destroy*(pool: ShmPool) =
-  pool.free()
 
 # ---------------------------------------------------------------------------
 # Scaled surface

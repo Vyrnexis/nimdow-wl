@@ -37,7 +37,7 @@ import
 export types.BarTag, types.FontSet, types.StatusBar, types.TrayRegion, types.ClickedRegion,
   types.BarClick, types.InputTarget, types.BarContext
 export input.newBarContext, input.scale120
-export fonts.allFonts
+export fonts.primary, fonts.newLayout, fonts.textSize
 export render.regionAt
 
 # ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ proc setConfig*(this: StatusBar, settings: BarSettings, tagSettings: TagSettings
   this.settings = settings
   this.tagLabels = tagLabels(tagSettings)
   this.fonts = this.ctx.fontSetFor(settings.fonts)
-  inc this.configGen
+  inc this.wanted.configGen
 
 proc height*(this: StatusBar): int = this.settings.height.int
 
@@ -148,12 +148,12 @@ proc setTray*(this: StatusBar, tray: Tray) =
   this.tray = tray
   this.wanted.trayVersion = if tray != nil: tray.version else: -1
 
-proc trayLayout*(this: StatusBar): seq[TrayRegion] =
+iterator trayLayout*(this: StatusBar): TrayRegion =
   ## The icons of the last draw, with x relative to the screen.
   for region in this.trayRegions:
     var r = region
     r.x += this.originX
-    result.add r
+    yield r
 
 proc trayIconAt*(this: StatusBar, x, y: int): tuple[uid, x, y: int] =
   ## The tray icon under the surface position (uid -1: none), with the icon's
@@ -163,11 +163,6 @@ proc trayIconAt*(this: StatusBar, x, y: int): tuple[uid, x, y: int] =
     if x >= region.x and x < region.x + region.width and y >= 0 and y < this.wanted.height:
       return (region.uid, this.originX + region.x,
         this.originY + (this.wanted.height - region.width) div 2)
-
-proc setStatus*(this: StatusBar, status: string) =
-  this.wanted.status = status
-
-proc status*(this: StatusBar): string = this.wanted.status
 
 proc tagCount*(this: StatusBar): int = this.tagLabels.len
 
@@ -186,7 +181,6 @@ proc flush*(this: StatusBar, x, y, width: int, visible: bool) =
   this.wanted.height = this.settings.height.int
   this.wanted.scale120 = this.scale120
   this.wanted.visible = visible and width > 0 and this.settings.height > 0
-  this.wanted.configGen = this.configGen
 
   if not this.wanted.visible:
     this.trayRegions.setLen 0
@@ -205,7 +199,8 @@ proc flush*(this: StatusBar, x, y, width: int, visible: bool) =
     pixelWidth = this.scaled.physical(width)
     pixelHeight = this.scaled.physical(this.wanted.height)
   if not this.pool.resize(pixelWidth, pixelHeight):
-    # Retried (not before a short backoff) by the next flush.
+    # Allocation failed (logged). `drawn` stays stale, so the next flush tries
+    # again; no manage sequence is requested here.
     return
   let index = this.pool.acquire()
   if index == -1:

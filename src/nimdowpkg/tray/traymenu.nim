@@ -168,24 +168,12 @@ proc oneLine(s: string): string =
     if c in {'\n', '\r', '\t'}:
       c = ' '
 
-proc newLayout(cr: Cairo, text: string, desc: PangoFontDescription): PangoLayout =
-  result = pango_cairo_create_layout(cr)
-  pango_layout_set_font_description(result, desc)
-  pango_layout_set_text(result, text.cstring, text.len.cint)
-
-proc textSize(cr: Cairo, text: string, desc: PangoFontDescription): tuple[w, h: int] =
-  let layout = newLayout(cr, text, desc)
-  var w, h: cint
-  pango_layout_get_pixel_size(layout, addr w, addr h)
-  g_object_unref(layout)
-  (w.int, h.int)
-
 proc computeLayout(popup: MenuPopup) =
   ## Rows and size from the entries and the bar's font.
   let
     m = popup.mgr
     settings = m.bar.barSettings
-    desc = m.fonts.allFonts
+    desc = m.fonts.primary
     # Measured like drawn: with the popup's device scale, so the font metrics
     # (hinting) match.
     surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1)
@@ -310,7 +298,7 @@ proc drawRow(popup: MenuPopup, cr: Cairo, index: int) =
   let
     m = popup.mgr
     settings = m.bar.barSettings
-    desc = m.fonts.allFonts
+    desc = m.fonts.primary
     row = popup.rows[index]
     entry = row.entry
     fg = toRgba(settings.fgColor)
@@ -403,7 +391,7 @@ proc draw(popup: MenuPopup, data: pointer) =
   if popup.tip.len > 0:
     let
       fg = toRgba(settings.fgColor)
-      desc = popup.mgr.fonts.allFonts
+      desc = popup.mgr.fonts.primary
       lineH = (popup.height - 2 * (border + padV)) div popup.tip.len
     cairo_set_source_rgba(cr, fg.r, fg.g, fg.b, 1.0)
     for i, line in popup.tip:

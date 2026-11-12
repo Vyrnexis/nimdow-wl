@@ -52,9 +52,11 @@ proc sd_bus_call_method_async*(bus: SdBus, slot: ptr SdBusSlot,
     destination, path, ifaceName, member: cstring,
     callback: SdBusMessageHandler, userdata: pointer,
     types: cstring): cint {.importc, cdecl, varargs.}
-proc sd_bus_match_signal*(bus: SdBus, slot: ptr SdBusSlot,
+proc sd_bus_match_signal_async*(bus: SdBus, slot: ptr SdBusSlot,
     sender, path, ifaceName, member: cstring,
-    callback: SdBusMessageHandler, userdata: pointer): cint {.importc, cdecl.}
+    callback, installCallback: SdBusMessageHandler,
+    userdata: pointer): cint {.importc, cdecl.}
+  ## The match is installed in the background (`installCallback` may be nil).
 proc sd_bus_emit_signal*(bus: SdBus, path, ifaceName, member: cstring,
     types: cstring): cint {.importc, cdecl, varargs.}
 proc sd_bus_emit_properties_changed*(bus: SdBus, path, ifaceName,

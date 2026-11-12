@@ -122,7 +122,6 @@ exec = [
   borderWidth = 2
   borderColorUnfocused = "#3c3836"
   borderColorFocused = "#b8bb26"
-  borderColorUrgent = "#fb4934"
   # Bar settings
   barHeight = 30
   # System tray (StatusNotifierItem, see README). Icon size is barHeight - 2 * trayIconPadding.
@@ -137,7 +136,6 @@ exec = [
   barSelectionColor = "#fabd2f"
   menuBorderColor = "#b8bb26"
   menuWidthMin = 180
-  barUrgentColor = "#fb4934"
   barHasWindowsColor = "#83a598"
   barShowIndicator = true
   barTagPadding = 12 # space on each side of a tag label
@@ -300,10 +298,6 @@ exec = [
 
   [controls.centerFloating]
   keys = [ "c" ]
-  modifiers = [ "super" ]
-
-  [controls.jumpToUrgentWindow]
-  keys = [ "u" ]
   modifiers = [ "super" ]
 
   [controls.goToTag]

@@ -126,34 +126,18 @@ proc parseAppRules*(table: TomlTable): seq[AppRule] =
       log "appRule " & $(index + 1) & ": " & getCurrentExceptionMsg(), lvlError
 
 proc globMatches*(str, sub: string): bool =
+  ## Matches `sub` against `str`: exactly, or as "*bar*" (contains), "*bar"
+  ## (suffix) or "foo*" (prefix). An empty `sub` matches anything.
   if sub.len == 0 or str == sub:
     return true
-
-  if sub.startsWith(globChar):
-    var substring = sub
-    substring.removePrefix(globChar)
-
-    if sub.endsWith(globChar):
-      # sub is "*bar*" type of search
-      substring.removeSuffix(globChar)
-      return str.contains(substring)
-
-    # sub is "*bar" type of search
-    return str.endsWith(substring)
-
-  elif sub.endsWith(globChar):
-    var substring = sub
-    substring.removeSuffix(globChar)
-
-    if sub.startsWith(globChar):
-      # sub is "*foo*" type of search
-      substring.removePrefix(globChar)
-      return str.contains(substring)
-
-    # sub is "foo*" type of search
-    return str.startsWith(substring)
-
-  return false
+  let
+    text = sub.strip(chars = {globChar})
+    leading = sub.startsWith(globChar)
+    trailing = sub.endsWith(globChar)
+  if leading and trailing: str.contains(text)
+  elif leading: str.endsWith(text)
+  elif trailing: str.startsWith(text)
+  else: false
 
 proc matches*(this: AppRule, title, instance, class: string): bool =
   return

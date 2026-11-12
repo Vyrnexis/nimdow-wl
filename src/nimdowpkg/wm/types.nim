@@ -34,9 +34,6 @@ type
     seat*: Seat
     kind*: PointerRequestKind
 
-  SeatOp* = enum
-    soNone, soMove, soResize
-
   ## Keyboard focus held by a layer shell surface (launcher, lock screen, ...).
   LayerFocus* = enum
     lfNone, lfNonExclusive, lfExclusive
@@ -59,7 +56,8 @@ type
     ## Set by a pointer binding (modKey + button) and handled in the manage sequence.
     pendingPointerOp*: PointerRequestKind
     # Interactive move/resize (river_seat_v1.op_start_pointer).
-    op*: SeatOp
+    ## The interactive move/resize in progress.
+    op*: PointerRequestKind
     opClient*: Client
     ## The client's area when its first op_delta arrived.
     opStart*: Area

@@ -23,7 +23,7 @@ proc applyStatus(this: WindowManager) =
   if statuses.len == 1:
     for monitor in this.monitors.values():
       if monitor.statusBar != nil:
-        monitor.statusBar.setStatus(statuses[0])
+        monitor.statusBar.wanted.status = statuses[0]
     return
   try:
     for rawStatus in statuses[1 .. statuses.high]:
@@ -36,12 +36,12 @@ proc applyStatus(this: WindowManager) =
       if monitor.statusBar != nil:
         var status = rawStatus
         status.removePrefix(monitorIndexAsStr)
-        monitor.statusBar.setStatus(status)
+        monitor.statusBar.wanted.status = status
   except ValueError:
     let msg = getCurrentExceptionMsg()
     for monitor in this.monitors.values():
       if monitor.statusBar != nil:
-        monitor.statusBar.setStatus(msg)
+        monitor.statusBar.wanted.status = msg
     log msg, lvlError
 
 proc trayMonitor*(this: WindowManager): Monitor =

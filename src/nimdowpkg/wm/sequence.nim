@@ -44,7 +44,7 @@ proc manageMenu(this: WindowManager) =
     elif sig != this.menuTagSig:
       this.tray.closeMenu()
     if this.tray.menu != nil:
-      let (_, monitor) = this.monitors.find(session.anchorX, session.anchorY)
+      let monitor = this.monitors.find(session.anchorX, session.anchorY)
       if monitor != nil and monitor.statusBar != nil and monitor.isStatusBarEnabled:
         bar = monitor.statusBar
         let usable = monitor.usableArea()
@@ -220,7 +220,7 @@ proc onManageStart*(this: WindowManager) =
   for seat in this.seats:
     if seat.pointerChanged:
       seat.pointerChanged = false
-      let (_, monitor) = this.monitors.find(seat.pointerX.int, seat.pointerY.int)
+      let monitor = this.monitors.find(seat.pointerX.int, seat.pointerY.int)
       if monitor != nil:
         this.selectedMonitor = monitor
 
@@ -327,8 +327,9 @@ proc centerOnMonitor(client: Client, monitor: Monitor): bool =
     client.height = percentArea(
       area, settings.floatingWidth, settings.floatingHeight, client.borderWidth).height
     result = true
-  client.x = (area.x.float + (area.width.float - client.totalWidth.float) / 2).int
-  client.y = (area.y.float + (area.height.float - client.totalHeight.float) / 2).int
+  let centered = centeredArea(area, client.width, client.height, client.borderWidth)
+  client.x = centered.x
+  client.y = centered.y
   client.needsCenter = false
 
 var
@@ -363,8 +364,7 @@ proc applyRenderState(this: WindowManager) =
         if client.centerOnMonitor(monitor):
           this.markDirty()
       let color =
-        if client.isUrgent: settings.borderColorUrgent
-        elif client == focusedClient: settings.borderColorFocused
+        if client == focusedClient: settings.borderColorFocused
         else: settings.borderColorUnfocused
       let bw = if client.isFullscreen: 0'i32 else: client.borderWidth.int32
       # River positions fullscreen windows itself. Layout areas include the

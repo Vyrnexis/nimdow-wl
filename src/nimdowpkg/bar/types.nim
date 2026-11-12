@@ -10,18 +10,8 @@ import
   ../wl/protocols/[river_window_management_v1, viewporter, fractional_scale_v1]
 
 type
-  ## Owns a Pango font description.
-  FontDescObj* = object
-    desc*: PangoFontDescription
-  FontDesc* = ref FontDescObj
-
-proc `=destroy`(f: var FontDescObj) =
-  if f.desc != nil:
-    pango_font_description_free(f.desc)
-
-type
   BarTag* = object
-    selected*, empty*, urgent*, hasCurrent*: bool
+    selected*, empty*, hasCurrent*: bool
 
   BarState* = object
     tags*: seq[BarTag]
@@ -36,13 +26,12 @@ type
     trayVersion*: int
 
   ## The fonts of a bar configuration: one description per configured font
-  ## (for explicit font selection) and one combining the families so Pango
-  ## falls back through them. Shared by the bars and the menu popups; the
-  ## descriptions are freed with the last reference.
-  FontSet* = ref object
+  ## (at least one; the first is the default). Shared by the bars and the menu
+  ## popups; the descriptions are freed with the last reference.
+  FontSetObj = object
     names*: seq[string]
-    fonts*: seq[FontDesc]
-    all*: FontDesc
+    fonts*: seq[PangoFontDescription]
+  FontSet* = ref FontSetObj
 
   TextInfo* = object
     valid*: bool
@@ -64,7 +53,6 @@ type
   ParsedStatus* = object
     ## The status text this was parsed from.
     source*: string
-    valid*: bool
     runs*: seq[Run]
     ## Powerline glyphs without background, see `renderStringRightAligned`.
     probe*: string
@@ -73,7 +61,6 @@ type
   BlockMetrics* = object
     valid*: bool
     probe*: string
-    height*, bufH*: int
     top*, size*: float
 
   StatusBar* = ref object
@@ -86,7 +73,6 @@ type
     tagLabels*: seq[string]
     ## What should be shown, and what is shown right now.
     wanted*, drawn*: BarState
-    configGen*: int
     fonts*: FontSet
     fontErrorLogged*: bool
     pool*: ShmPool
@@ -183,3 +169,7 @@ type
     fontCache*: FontSet
     clicks*: seq[BarClick]
     requestManage*: proc() {.closure.}
+
+proc `=destroy`(f: var FontSetObj) =
+  for desc in f.fonts:
+    pango_font_description_free(desc)

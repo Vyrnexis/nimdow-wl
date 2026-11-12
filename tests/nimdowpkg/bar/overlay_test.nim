@@ -4,10 +4,12 @@ import
   sequtils,
   strutils,
   tables,
-  bar/overlay,
   config/configloader,
   config/keys,
   wm/commands
+
+# The content helpers are private: include the module to test them.
+include bar/overlay
 
 proc noop(keyCombo: KeyCombo) = discard
 

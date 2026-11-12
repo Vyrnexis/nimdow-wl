@@ -1,6 +1,5 @@
 import
-  std/[times, tables, math],
-  parsetoml,
+  std/[times, math],
   types,
   clientlist,
   monitor,
@@ -9,10 +8,6 @@ import
   ../config/apprules,
   ../wl/protocols/[river_window_management_v1, river_xkb_bindings_v1, river_layer_shell_v1],
   ../sys/logger
-
-# ---------------------------------------------------------------------------
-# Windows
-# ---------------------------------------------------------------------------
 
 proc windowClosed(data: pointer, obj: RiverWindowV1) {.cdecl.} =
   let client = cast[Client](data)
@@ -98,10 +93,10 @@ proc wmWindow*(data: pointer, obj: RiverWindowManagerV1, w: RiverWindowV1) {.cde
 
 proc endSeatOp*(seat: Seat) =
   ## Ends the interactive op of the seat. Manage sequence only.
-  if seat.op == soResize and seat.opClient != nil:
+  if seat.op == prResize and seat.opClient != nil:
     river_window_v1_inform_resize_end(seat.opClient.window)
   river_seat_v1_op_end(seat.obj)
-  seat.op = soNone
+  seat.op = prNone
   seat.opClient = nil
   seat.opStarted = false
   seat.opRelease = false
@@ -128,8 +123,14 @@ proc findAppRule(this: WindowManager, client: Client): AppRule =
     if rule.matches(client.title, client.appId, client.appId):
       return rule
 
+proc applyRuleTags(client: Client, rule: AppRule) =
+  if rule.tagIDs.len > 0:
+    client.tagIDs = {}
+    for tagID in rule.tagIDs:
+      client.tagIDs.incl tagID
+
 proc centerIfAtOrigin(client: Client, monitor: Monitor) =
-  ## Original centerClientIfNeeded: a floating client at the top-left corner
+  ## A floating client at the top-left corner
   ## of the usable area is centered once its size is known.
   let usable = monitor.usableArea()
   if client.x <= usable.x and client.y <= usable.y:
@@ -201,10 +202,7 @@ proc applyLateRules*(this: WindowManager, client: Client, monitor: Monitor) =
     return
   client.ruleApplied = true
   log "Applied app rule to \"" & client.appId & "\" after its title arrived: " & client.title
-  if rule.tagIDs.len > 0:
-    client.tagIDs = {}
-    for tagID in rule.tagIDs:
-      client.tagIDs.incl tagID
+  client.applyRuleTags(rule)
   case rule.state
   of wsFloating:
     monitor.setFloating(client, true)
@@ -232,7 +230,7 @@ proc assignUnassigned*(this: WindowManager) =
       monitor = this.selectedMonitor
       rule: AppRule
     if client.isNew:
-      if not client.deferredForInfo and not client.isClosed and
+      if not client.deferredForInfo and
          (client.appId.len == 0 or (titleRules and client.title.len == 0)):
         client.deferredForInfo = true
         waiting.add client
@@ -247,10 +245,7 @@ proc assignUnassigned*(this: WindowManager) =
       client.area = (monitor.area.x, monitor.area.y, 0.uint, 0.uint)
 
       if rule != nil:
-        if rule.tagIDs.len > 0:
-          client.tagIDs = {}
-          for tagID in rule.tagIDs:
-            client.tagIDs.incl tagID
+        client.applyRuleTags(rule)
         case rule.state
         of wsFloating:
           client.isFloating = true

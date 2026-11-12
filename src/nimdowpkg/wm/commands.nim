@@ -39,7 +39,6 @@ type
     wmcResizeFloatingShorter = "resizefloatingshorter",
     wmcResizeFloatingWider = "resizefloatingwider",
     wmcCenterFloating = "centerfloating",
-    wmcJumpToUrgentWindow = "jumptourgentwindow"
     wmcIncreaseMasterWidth = "increasemasterwidth"
     wmcDecreaseMasterWidth = "decreasemasterwidth"
     wmcMoveWindowToScratchpad = "movewindowtoscratchpad"

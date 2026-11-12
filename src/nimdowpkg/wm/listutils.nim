@@ -13,7 +13,3 @@ proc swap*[T](a, b: var DoublyLinkedNode[T]) =
   a.value = b.value
   b.value = temp
 
-proc len*[T](L: DoublyLinkedList[T]): int =
-  for n in L:
-    result.inc
-

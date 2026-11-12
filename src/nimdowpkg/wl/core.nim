@@ -29,16 +29,12 @@ type
     alloc*: csize_t
     data*: pointer
 
-const
-  WL_MARSHAL_FLAG_DESTROY* = 1'u32
-
 proc wlFixedToFloat*(f: WlFixed): float {.inline.} = f.float / 256.0
 proc wlFixedFromFloat*(d: float): WlFixed {.inline.} = WlFixed(d * 256.0)
 
 # --- wl_display ---
 
 proc wl_display_connect*(name: cstring): WlDisplay {.importc, cdecl.}
-proc wl_display_disconnect*(d: WlDisplay) {.importc, cdecl.}
 proc wl_display_get_fd*(d: WlDisplay): cint {.importc, cdecl.}
 proc wl_display_dispatch_pending*(d: WlDisplay): cint {.importc, cdecl.}
 proc wl_display_roundtrip*(d: WlDisplay): cint {.importc, cdecl.}

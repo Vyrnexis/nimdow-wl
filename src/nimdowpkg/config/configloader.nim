@@ -97,7 +97,6 @@ type
   WindowSettings* = object
     borderColorUnfocused*: int
     borderColorFocused*: int
-    borderColorUrgent*: int
     borderWidth*: uint
     modKey*: int
     ## Size (percent of the usable area) of a tiled window made floating.
@@ -110,7 +109,7 @@ type
     fonts*: seq[string]
     showIndicator*: bool
     # Hex values
-    fgColor*, bgColor*, selectionColor*, urgentColor*, hasWindowsColor*: int
+    fgColor*, bgColor*, selectionColor*, hasWindowsColor*: int
     transparency*: uint8
     ## Tray icon size is the bar height minus twice the padding.
     trayIconPadding*, trayIconSpacing*: uint
@@ -166,7 +165,13 @@ type
     appRules*: seq[AppRule]
     input*: InputSettings
 
+proc removeTransparencyFromHexColor(color: int): int =
+  return color or (0xff shl 24)
+
 proc defaultMonitorSettings(): MonitorSettings =
+  ## Must equal what config.default.toml sets (a unit test checks this).
+  ## `menuBorderColor` and `hasWindowsColor` are the toml's values: the loader
+  ## derives them from other colors only when `[settings]` leaves them unset.
   result.barSettings = BarSettings(
     height: 20,
     windowTitlePosition: wtpCenter,
@@ -174,17 +179,16 @@ proc defaultMonitorSettings(): MonitorSettings =
       "monospace:size=10:antialias=true",
       "NotoColorEmoji:size=10:antialias=true"
     ],
-    showIndicator: true,
-    fgColor: 0xfce8c3,
-    bgColor: 0x1c1b19,
-    selectionColor: 0x519f50,
-    urgentColor: 0xef2f27,
-    hasWindowsColor: 0xfce8c3,
+    showIndicator: false,
+    fgColor: 0xf8f8f2,
+    bgColor: 0x282a36,
+    selectionColor: 0x50fa7b,
+    hasWindowsColor: 0xf5e0dc,
     transparency: 255,
     trayIconPadding: 2,
     trayIconSpacing: 4,
     tagPadding: 8,
-    menuBorderColor: 0x519f50,
+    menuBorderColor: 0x50fa7b,
     menuWidthMin: 150
   )
   result.layoutSettings = LayoutSettings(
@@ -201,9 +205,8 @@ proc newConfig*(): Config =
     bindings: initOrderedTable[KeyCombo, Binding](),
     whileLockedCombos: initHashSet[KeyCombo](),
     windowSettings: WindowSettings(
-      borderColorUnfocused: 0x1c1b19,
-      borderColorFocused: 0x519f50,
-      borderColorUrgent: 0xff5555,
+      borderColorUnfocused: removeTransparencyFromHexColor(0x282a36),
+      borderColorFocused: removeTransparencyFromHexColor(0x50fa7b),
       borderWidth: 1,
       modKey: ModifierTable["super"].int,
       floatingWidth: 50,
@@ -215,11 +218,8 @@ proc newConfig*(): Config =
       height: 300,
     ),
     defaultMonitorSettings: defaultMonitorSettings(),
-
-    loggingEnabled: false,
     trayEnabled: true,
     trayMonitor: 1,
-    reverseTagScrolling: false,
     lockCommand: "swaylock -f -c 282828"
   )
 
@@ -499,7 +499,7 @@ proc populateControlsTable(this: Config, configTable: TomlTable) =
   for action, controlToml in controlsTable.tableVal.pairs():
     let commandOpt = parseCommand(action)
     if commandOpt.isNone:
-      log "Invalid control: " & action, lvlError
+      log "Unknown control \"" & action & "\" ignored (removed or misspelled)", lvlWarn
     elif controlToml.kind != TomlValueKind.Table:
       log "Invalid control \"" & action & "\": expected a table with keys and modifiers", lvlError
     else:
@@ -528,27 +528,23 @@ proc populateExternalProcessSettings(this: Config, configTable: TomlTable) =
         raise newException(Exception, "Invalid \"startProcess\" configuration: Missing \"command\" string!")
       let command = commandOpt.get
 
-      if declaration.hasKey("clickRegion"):
-        let clickRegionOpt = declaration.getInt("clickRegion")
-        if clickRegionOpt.isNone:
-          raise newException(
-            Exception,
-            "Invalid \"startProcess\" configuration: \"clickRegion\" not a number!"
-          )
-        closureScope:
-          let command = command
-          this.regionClickActionTable[clickRegionOpt.get] =
-            proc(idx: int, width: int, regionCord: Point[int], clickCord: Point[int], button: int) =
-              this.runCommandWithArgs(
-                command,
-                $idx,
-                $regionCord.x,
-                $regionCord.y,
-                $clickCord.x,
-                $clickCord.y,
-                $width,
-                $button
-              )
+      let clickRegion = declaration.getInt("clickRegion")
+      if clickRegion.isSome:
+        if declaration.hasKey("keys"):
+          log "startProcess \"" & command & "\" sets both clickRegion and keys; " &
+            "only clickRegion is used", lvlWarn
+        this.regionClickActionTable[clickRegion.get] =
+          proc(idx: int, width: int, regionCord: Point[int], clickCord: Point[int], button: int) =
+            this.runCommandWithArgs(
+              command,
+              $idx,
+              $regionCord.x,
+              $regionCord.y,
+              $clickCord.x,
+              $clickCord.y,
+              $width,
+              $button
+            )
       else:
         this.configureExternalProcess(command)
         this.populateControlAction(
@@ -559,17 +555,17 @@ proc populateExternalProcessSettings(this: Config, configTable: TomlTable) =
           declaration[], declaration.getBool("whileLocked").get(false)
         )
 
-proc removeTransparencyFromHexColor(color: int): int =
-  return color or (0xff shl 24)
-
 proc populateLayoutSettings*(
   this: Config,
   layoutSettings: var LayoutSettings,
   settingsTable: TomlTableRef
 ) =
-  setIfSome layoutSettings.gapSize, settingsTable.getInt("gapSize").map(proc(v: int): uint = max(0, v).uint)
-  setIfSome layoutSettings.outerGap, settingsTable.getInt("outerGap").map(proc(v: int): uint = max(0, v).uint)
-  setIfSome layoutSettings.resizeStep, settingsTable.getInt("resizeStep", 1).map(proc(v: int): uint = v.uint)
+  for (key, field, min) in [("gapSize", addr layoutSettings.gapSize, 0),
+                            ("outerGap", addr layoutSettings.outerGap, 0),
+                            ("resizeStep", addr layoutSettings.resizeStep, 1)]:
+    let value = settingsTable.getInt(key, min)
+    if value.isSome:
+      field[] = value.get.uint
 
 proc populateBarSettings*(this: Config, barSettings: var BarSettings, settingsTable: TomlTableRef) =
   let wtp = settingsTable.getStr("windowTitlePosition")
@@ -585,7 +581,6 @@ proc populateBarSettings*(this: Config, barSettings: var BarSettings, settingsTa
   setIfSome barSettings.bgColor, settingsTable.getHex("barBackgroundColor")
   setIfSome barSettings.fgColor, settingsTable.getHex("barForegroundColor")
   setIfSome barSettings.selectionColor, settingsTable.getHex("barSelectionColor")
-  setIfSome barSettings.urgentColor, settingsTable.getHex("barUrgentColor")
 
   let menuBorderColor = settingsTable.getHex("menuBorderColor")
   barSettings.menuBorderColor =
@@ -595,8 +590,9 @@ proc populateBarSettings*(this: Config, barSettings: var BarSettings, settingsTa
   barSettings.hasWindowsColor =
     if hasWindowsColor.isSome: hasWindowsColor.get else: barSettings.fgColor
 
-  let transparency = settingsTable.getInt("barTransparency")
-  barSettings.transparency = if transparency.isSome: clamp(transparency.get, 0, 255).uint8 else: 255
+  let transparency = settingsTable.getInt("barTransparency", 0)
+  if transparency.isSome:
+    barSettings.transparency = min(transparency.get, 255).uint8
   setIfSome barSettings.showIndicator, settingsTable.getBool("barShowIndicator")
 
   for (key, field) in [("trayIconPadding", addr barSettings.trayIconPadding),
@@ -604,9 +600,9 @@ proc populateBarSettings*(this: Config, barSettings: var BarSettings, settingsTa
                        ("menuWidthMin", addr barSettings.menuWidthMin),
                        ("barTagPadding", addr barSettings.tagPadding),
                        ("barHeight", addr barSettings.height)]:
-    let value = settingsTable.getInt(key)
+    let value = settingsTable.getInt(key, 0)
     if value.isSome:
-      field[] = max(0, value.get).uint
+      field[] = value.get.uint
 
   if settingsTable.hasKey("barFonts"):
     let barFonts = settingsTable["barFonts"]
@@ -625,6 +621,8 @@ proc populateBarSettings*(this: Config, barSettings: var BarSettings, settingsTa
         log "barFonts has no valid font; keeping the default", lvlWarn
 
 proc populateGeneralSettings*(this: Config, configTable: TomlTable) =
+  ## Must run before `populateMonitorSettings`: the per-monitor settings are
+  ## copies of the defaults made there, so they get these settings too.
   if not configTable.hasKey("settings") or configTable["settings"].kind != TomlValueKind.Table:
     log "Missing or invalid [settings] table; using defaults", lvlError
     return
@@ -637,7 +635,7 @@ proc populateGeneralSettings*(this: Config, configTable: TomlTable) =
 
   # Window settings
   setIfSome this.windowSettings.borderWidth,
-    settingsTable.getInt("borderWidth").map(proc(v: int): uint = max(0, v).uint)
+    settingsTable.getInt("borderWidth", 0).map(proc(v: int): uint = v.uint)
   for (key, field) in [("floatingWidth", addr this.windowSettings.floatingWidth),
                        ("floatingHeight", addr this.windowSettings.floatingHeight)]:
     let percent = settingsTable.getInt(key, 10)
@@ -645,30 +643,23 @@ proc populateGeneralSettings*(this: Config, configTable: TomlTable) =
       field[] = min(percent.get, 100)
   setIfSome this.windowSettings.floatingStep, settingsTable.getInt("floatingStep", 1)
   for (key, field) in [("borderColorUnfocused", addr this.windowSettings.borderColorUnfocused),
-                       ("borderColorFocused", addr this.windowSettings.borderColorFocused),
-                       ("borderColorUrgent", addr this.windowSettings.borderColorUrgent)]:
+                       ("borderColorFocused", addr this.windowSettings.borderColorFocused)]:
     let color = settingsTable.getHex(key)
     if color.isSome:
       field[] = removeTransparencyFromHexColor(color.get)
 
-  # Bar & layout settings
-  for monitorSettings in this.monitorSettings.mvalues():
-    guarded "monitor settings":
-      this.populateBarSettings(monitorSettings.barSettings, settingsTable)
-      this.populateLayoutSettings(monitorSettings.layoutSettings, settingsTable)
-
   # General settings
   setIfSome this.loggingEnabled, settingsTable.getBool("loggingEnabled")
   setIfSome this.trayEnabled, settingsTable.getBool("trayEnabled")
-  setIfSome this.trayMonitor, settingsTable.getInt("trayMonitor").map(proc(v: int): int = max(0, v))
+  setIfSome this.trayMonitor, settingsTable.getInt("trayMonitor", 0)
   setIfSome this.trayIconTheme, settingsTable.getStr("trayIconTheme")
   setIfSome this.lockCommand, settingsTable.getStr("lockCommand")
   setIfSome this.hotkeyOverlayAtStartup, settingsTable.getBool("hotkeyOverlayAtStartup")
   setIfSome this.reverseTagScrolling, settingsTable.getBool("reverseTagScrolling")
 
   # Scratchpad settings
-  setIfSome this.scratchpadSettings.width, settingsTable.getInt("scratchpadWidth")
-  setIfSome this.scratchpadSettings.height, settingsTable.getInt("scratchpadHeight")
+  setIfSome this.scratchpadSettings.width, settingsTable.getInt("scratchpadWidth", 1)
+  setIfSome this.scratchpadSettings.height, settingsTable.getInt("scratchpadHeight", 1)
 
   let modKey = settingsTable.getStr("modKey")
   if modKey.isSome:
@@ -731,8 +722,8 @@ proc load*(this: Config, configTable: TomlTable) =
   ## Populates the whole config. Never raises: bad entries are logged and skipped.
   ## Actions (`configureAction`) must be registered first, as controls refer to them.
   this.populateAppRules(configTable)
-  this.populateKeyComboTable(configTable)
   this.populateGeneralSettings(configTable)
+  this.populateKeyComboTable(configTable)
   guarded "input settings":
     this.populateInputSettings(configTable)
 

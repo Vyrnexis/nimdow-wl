@@ -87,3 +87,10 @@ describe "Tag settings validation":
     assert settings[2].displayString == "2"
     assert settings[4].numMasterWindows == 1
     assert settings[5].numMasterWindows == 3
+
+  it "lets [all] set a value equal to the old sentinels":
+    var settings = createDefaultTagSettings()
+    populateTagSettings(settings, parseString("[all]\ndefaultMasterWidthPercentage = 70").tableVal)
+    assert settings[3].defaultMasterWidthPercentage == 70
+    populateTagSettings(settings, parseString("[all]\ndefaultMasterWidthPercentage = 50").tableVal)
+    assert settings[3].defaultMasterWidthPercentage == 50

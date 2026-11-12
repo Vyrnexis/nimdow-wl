@@ -273,24 +273,24 @@ proc startSeatOp*(
 ) =
   ## Starts moving/resizing the client with the seat's pointer. The client
   ## becomes floating with the first motion (op_delta).
-  if seat.op != soNone or client == nil or client.isFullscreen or
+  if seat.op != prNone or client == nil or client.isFullscreen or
      this.monitorOf(client) == nil:
     return
   this.selectClient(client)
   river_seat_v1_op_start_pointer(seat.obj)
-  seat.op = if kind == prMove: soMove else: soResize
+  seat.op = kind
   seat.opClient = client
   seat.opEdges = edges
   seat.opStarted = false
   seat.opRelease = false
   seat.opDx = 0
   seat.opDy = 0
-  if seat.op == soResize:
+  if seat.op == prResize:
     river_window_v1_inform_resize_start(client.window)
 
 proc manageSeatOp*(this: WindowManager, seat: Seat) =
   ## Advances the interactive op: the client's area follows the pointer.
-  if seat.op == soNone:
+  if seat.op == prNone:
     return
   let client = seat.opClient
   let monitor = this.monitorOf(client)
@@ -309,8 +309,9 @@ proc manageSeatOp*(this: WindowManager, seat: Seat) =
 
   if seat.opStarted:
     let start = seat.opStart
-    if seat.op == soMove:
-      client.setLocation(start.x + seat.opDx.int, start.y + seat.opDy.int)
+    if seat.op == prMove:
+      client.x = start.x + seat.opDx.int
+      client.y = start.y + seat.opDy.int
     else:
       var
         width = start.width.int
@@ -337,6 +338,6 @@ proc manageSeatOp*(this: WindowManager, seat: Seat) =
       let
         centerX = client.x + client.totalWidth div 2
         centerY = client.y + client.totalHeight div 2
-        (_, target) = this.monitors.find(centerX, centerY)
+        target = this.monitors.find(centerX, centerY)
       if target != nil and target != monitor:
         this.moveClientToMonitor(client, target, keepPosition = true)

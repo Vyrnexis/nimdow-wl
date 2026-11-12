@@ -18,7 +18,7 @@ type
   Window* = RiverWindowV1
   ## The river window handle is what identifies a client.
 
-  Client* = ref object of RootObj
+  Client* = ref object
     window*: Window
     node*: RiverNodeV1
     ## The monitor whose client list holds this client (0: none).
@@ -34,7 +34,6 @@ type
     isFloating*: bool
     # Non-resizable
     isFixedSize*: bool
-    isUrgent*: bool
     # Bookkeeping for the pending-state flush.
     ## No state has been sent to River for this client yet.
     isNew*: bool
@@ -89,7 +88,7 @@ type
     ## Dimensions the window actually took (river_window_v1.dimensions).
     reportedWidth*, reportedHeight*: int
 
-proc newClient*(window: Window, tagIDs: varargs[TagID]): Client =
+proc newClient*(window: Window): Client =
   result = Client(
     window: window,
     isNew: true,
@@ -97,8 +96,6 @@ proc newClient*(window: Window, tagIDs: varargs[TagID]): Client =
     sentWidth: -1,
     sentHeight: -1
   )
-  for id in tagIDs:
-    result.tagIDs.incl id
 
 # Area helper procs
 proc x*(this: Client): int = this.area.x
@@ -116,11 +113,4 @@ proc totalHeight*(this: Client): int {.inline.} = this.height.int + this.borderW
 proc resize*(this: Client, x, y: int, width, height: uint) =
   ## Records the desired area (excluding border); applied on the next manage/render.
   this.area = (x, y, width, height)
-
-proc setLocation*(this: Client, x, y: int) =
-  this.x = x
-  this.y = y
-
-proc setUrgent*(this: Client, isUrgent: bool) =
-  this.isUrgent = isUrgent
 

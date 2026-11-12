@@ -16,13 +16,13 @@ import
 export options
 
 type
-  Monitor* = ref object of RootObj
+  Monitor* = ref object
     id*: MonitorID
     ## The River output this monitor was built from.
     output*: RiverOutputV1
     area*: Area
     monitorSettings*: MonitorSettings
-    windowSettings: WindowSettings
+    windowSettings*: WindowSettings
     previousTagID*: TagID
     layoutOffset*: LayoutOffset
     ## Height reserved at the top of the monitor for the status bar
@@ -123,10 +123,6 @@ proc updateMonitor*(this: Monitor) =
       tag.layout.setDefaultWidth(this.layoutOffset)
   this.doLayout()
 
-########################################################
-#### Helper procs, iterators, templates, and macros ####
-########################################################
-
 template tags*(this: Monitor): seq[Tag] =
   this.taggedClients.tags
 
@@ -138,8 +134,6 @@ template clients*(this: Monitor): DoublyLinkedList[Client] =
 
 template clientSelection*(this: Monitor): seq[Client] =
   this.taggedClients.clientSelection
-
-proc windowSettings*(this: Monitor): WindowSettings = this.windowSettings
 
 proc enableStatusBar*(this: Monitor) =
   this.isStatusBarEnabled = true
@@ -169,7 +163,6 @@ proc syncStatusBar*(this: Monitor, isSelected: bool) =
   for client in this.clients.items:
     for tagID in client.tagIDs:
       perTag[tagID].empty = false
-      perTag[tagID].urgent = perTag[tagID].urgent or client.isUrgent
       if client == currClient:
         perTag[tagID].hasCurrent = true
   var
@@ -216,10 +209,8 @@ proc setSelectedClient*(this: Monitor, client: Client) =
   ## Marks the client as the most recently selected. The selected client of the
   ## selected tags is what gets keyboard focus on the next manage sequence.
   if client != nil:
-    if client.isUrgent:
-      client.setUrgent(false)
     if client.monitorID != this.id:
-      log "Attempted to select a client not on the current tags"
+      log "Attempted to select a client of another monitor"
       return
 
     # The topmost fullscreen client depends on the selection order.
@@ -241,16 +232,22 @@ proc tagIDFromArg*(this: Monitor, arg: string): Option[TagID] =
   except ValueError:
     log "Invalid tag number \"" & arg & "\": " & getCurrentExceptionMsg(), lvlError
 
+var tiled: seq[Client]
+  ## Scratch space of `doLayout` (kept for its capacity).
+
 proc doLayout*(this: Monitor) =
   ## Revalidates the current layout of the viewed tag(s).
   ## Only computes areas and visibility; nothing is sent to River until the
   ## next manage/render sequence.
   let tag = this.taggedClients.findFirstSelectedTag()
   if tag != nil:
-    tag.layout.arrange(
-      this.taggedClients.findCurrentClients(),
-      this.layoutOffset
-    )
+    # Fullscreen, floating and fixed size clients are not tiled.
+    tiled.setLen 0
+    for node in this.taggedClients.currClientsIter:
+      let client = node.value
+      if not client.isFullscreen and not client.isFloating and not client.isFixedSize:
+        tiled.add client
+    tag.layout.arrange(tiled, this.layoutOffset)
   this.layoutDirty = false
 
   # Only the topmost (most recently selected) fullscreen client is shown while
@@ -513,18 +510,14 @@ proc findPrevious*(monitors: openArray[Monitor], current: Monitor): int =
       return i - 1
   return -1
 
-proc find*(monitors: OrderedTable[MonitorID, Monitor], x, y: int): tuple[index: int, monitor: Monitor] =
-  ## Finds a monitor's index based on the given location.
-  ## -1 is returned if no monitors contain the location.
-
-  for i, monitor in monitors:
-    if monitor.area.contains(x, y):
-      return (i, monitor)
-
+proc find*(monitors: OrderedTable[MonitorID, Monitor], x, y: int): Monitor =
+  ## The monitor containing the location, else the one whose center is closest.
+  ## Nil if there are no monitors.
   var shortestDist = float.high
-  # Find the closest monitor based on distance to its center.
-  for i, monitor in monitors:
-    let dist = min(shortestDist, monitor.area.distanceToCenterSquared(x, y))
+  for monitor in monitors.values:
+    if monitor.area.contains(x, y):
+      return monitor
+    let dist = monitor.area.distanceToCenterSquared(x, y)
     if dist < shortestDist:
       shortestDist = dist
-      result = (i, monitor)
+      result = monitor

@@ -63,14 +63,12 @@ exec = [
   borderWidth = 1
   borderColorUnfocused = "#282a36"
   borderColorFocused = "#50fa7b"
-  borderColorUrgent = "#ff5555"
   # Bar settings
   barHeight = 20
   windowTitlePosition = "center"
   barBackgroundColor = "#282a36"
   barForegroundColor = "#f8f8f2"
   barSelectionColor = "#50fa7b"
-  barUrgentColor = "#ff5555"
   barHasWindowsColor = "#f5e0dc"
   barShowIndicator = false
   barTransparency = 255 # 0 to 255
@@ -207,10 +205,6 @@ exec = [
 
   [controls.centerFloating]
   keys = [ "c" ]
-  modifiers = [ "super" ]
-
-  [controls.jumpToUrgentWindow]
-  keys = [ "u" ]
   modifiers = [ "super" ]
 
   [controls.goToTag]

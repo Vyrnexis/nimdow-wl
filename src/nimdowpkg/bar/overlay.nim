@@ -24,19 +24,19 @@ import
 # ---------------------------------------------------------------------------
 
 type
-  Section* = enum
+  Section = enum
     secWindows = "Windows", secFloating = "Floating", secTags = "Tags",
     secLayout = "Layout", secMonitors = "Monitors", secScratchpad = "Scratchpad",
     secLaunch = "Launch", secMedia = "Media & hardware", secSession = "Session"
 
-  OverlayRow* = object
-    label*, keys*: string
+  OverlayRow = object
+    label, keys: string
 
-  OverlaySection* = object
-    title*: string
-    rows*: seq[OverlayRow]
+  OverlaySection = object
+    title: string
+    rows: seq[OverlayRow]
 
-proc info*(command: WMCommand): tuple[section: Section, label: string] =
+proc info(command: WMCommand): tuple[section: Section, label: string] =
   ## Where a control is listed and how it reads. Exhaustive: a new control
   ## does not compile until it has an entry here.
   case command
@@ -46,7 +46,6 @@ proc info*(command: WMCommand): tuple[section: Section, label: string] =
   of wmcMoveWindowPrevious: (secWindows, "Move window up the stack")
   of wmcToggleFullscreen: (secWindows, "Toggle fullscreen")
   of wmcDestroySelectedWindow: (secWindows, "Close window")
-  of wmcJumpToUrgentWindow: (secWindows, "Jump to urgent window")
   of wmcToggleFloating: (secFloating, "Toggle floating")
   of wmcCenterFloating: (secFloating, "Center floating window")
   of wmcMoveFloatingLeft: (secFloating, "Move floating window left")
@@ -105,7 +104,7 @@ const
     "xf86audioprev": "Previous track", "xf86audiostop": "Stop"
   }.toTable
 
-proc keyName*(key: string): string =
+proc keyName(key: string): string =
   ## A key as it reads on screen: "Return" is "Enter", "j" is "J".
   let known = keyNames.getOrDefault(key.toLowerAscii)
   if known.len > 0: known
@@ -113,7 +112,7 @@ proc keyName*(key: string): string =
   elif key.toLowerAscii.startsWith("xf86"): key[4 .. ^1]
   else: key
 
-proc keysText*(modifiers: uint32, keys: seq[string]): string =
+proc keysText(modifiers: uint32, keys: seq[string]): string =
   ## "Super + Shift + J". Keys that are a run of digits are shown as a range
   ## ("Super + 1–9"), other keys are listed ("Super + Left / Right").
   for (mask, name) in modifierNames:
@@ -134,7 +133,7 @@ proc shorten(command: string, maxLen = 30): string =
   let text = command.strip()
   if text.runeLen <= maxLen: text else: text.runeSubStr(0, maxLen - 1) & "…"
 
-proc overlayContent*(config: Config): seq[OverlaySection] =
+proc overlayContent(config: Config): seq[OverlaySection] =
   ## The bound keys by section, in config order. Controls and click regions
   ## without keys do not appear; empty sections are left out.
   type Entry = object
@@ -272,18 +271,6 @@ proc close*(this: HotkeyOverlay) =
   this.shell = nil
   this.target = nil
 
-proc newLayout(cr: Cairo, text: string, desc: PangoFontDescription): PangoLayout =
-  result = pango_cairo_create_layout(cr)
-  pango_layout_set_font_description(result, desc)
-  pango_layout_set_text(result, text.cstring, text.len.cint)
-
-proc textSize(cr: Cairo, text: string, desc: PangoFontDescription): tuple[w, h: int] =
-  let layout = newLayout(cr, text, desc)
-  var w, h: cint
-  pango_layout_get_pixel_size(layout, addr w, addr h)
-  g_object_unref(layout)
-  (w.int, h.int)
-
 proc sectionHeight(this: HotkeyOverlay, section: int): int =
   (1 + this.sections[section].rows.len) * this.rowHeight + sectionGap
 
@@ -301,7 +288,7 @@ proc pack(this: HotkeyOverlay, limit: int): seq[Column] =
 proc computeLayout(this: HotkeyOverlay, areaWidth, areaHeight: int) =
   ## Columns, as few as fit the output, and the size of the overlay (logical pixels).
   let
-    desc = this.fonts.allFonts
+    desc = this.fonts.primary
     surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1)
     deviceScale = this.scaled.scale120.float / 120.0
   # Measured like drawn: with the device scale, so the font metrics match.
@@ -355,7 +342,7 @@ proc computeLayout(this: HotkeyOverlay, areaWidth, areaHeight: int) =
 proc draw(this: HotkeyOverlay, data: pointer) =
   let
     settings = this.settings
-    desc = this.fonts.allFonts
+    desc = this.fonts.primary
     surface = cairo_image_surface_create_for_data(
       data, CAIRO_FORMAT_ARGB32, this.pool.width.cint, this.pool.height.cint,
       (this.pool.width * 4).cint
@@ -371,21 +358,15 @@ proc draw(this: HotkeyOverlay, data: pointer) =
     normal = toColor(settings.fgColor)
     heading = toColor(settings.selectionColor)
     keys = toColor(settings.hasWindowsColor)
-  proc fill(color: Color, x, y, w, h: int) =
-    cairo_set_source_rgba(cr, color.r, color.g, color.b, color.a)
-    cairo_rectangle(cr, x.cdouble, y.cdouble, w.cdouble, h.cdouble)
-    cairo_fill(cr)
   proc show(color: Color, text: string, x, y: int) =
     let layout = newLayout(cr, text, desc)
     cairo_set_source_rgba(cr, color.r, color.g, color.b, color.a)
     cairo_move_to(cr, x.cdouble, (y + rowPad div 2).cdouble)
     pango_cairo_show_layout(cr, layout)
     g_object_unref(layout)
-  cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE)
-  fill(frame, 0, 0, this.contentWidth, this.contentHeight)
-  fill(background, border, border, this.contentWidth - 2 * border,
-    this.contentHeight - 2 * border)
-  cairo_set_operator(cr, CAIRO_OPERATOR_OVER)
+  cr.fillRect(frame, 0, 0, this.contentWidth, this.contentHeight, true)
+  cr.fillRect(background, border, border, this.contentWidth - 2 * border,
+    this.contentHeight - 2 * border, true)
   var x = pad + border
   for column in this.columns:
     var y = pad + border

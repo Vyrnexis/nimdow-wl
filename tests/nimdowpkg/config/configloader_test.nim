@@ -88,6 +88,66 @@ describe "Config key bindings":
 
 describe "Config loading":
 
+  it "has the built-in defaults of config.default.toml":
+    let text = readFile(currentSourcePath().parentDir / ".." / ".." / ".." / "config.default.toml")
+    let fromFile = loaded(text)
+    let builtIn = loaded ""
+    assert fromFile.windowSettings == builtIn.windowSettings
+    assert fromFile.scratchpadSettings == builtIn.scratchpadSettings
+    let a = fromFile.defaultMonitorSettings
+    let b = builtIn.defaultMonitorSettings
+    assert a.barSettings == b.barSettings
+    assert a.layoutSettings == b.layoutSettings
+    assert a.tagSettings.len == b.tagSettings.len
+    for id, setting in a.tagSettings.pairs:
+      assert setting[] == b.tagSettings[id][]
+    assert (fromFile.loggingEnabled, fromFile.trayEnabled, fromFile.trayMonitor,
+      fromFile.trayIconTheme, fromFile.lockCommand, fromFile.hotkeyOverlayAtStartup,
+      fromFile.reverseTagScrolling) == (builtIn.loggingEnabled, builtIn.trayEnabled,
+      builtIn.trayMonitor, builtIn.trayIconTheme, builtIn.lockCommand,
+      builtIn.hotkeyOverlayAtStartup, builtIn.reverseTagScrolling)
+
+  it "ignores settings and controls that were removed":
+    let config = loaded """
+    [settings]
+    borderColorUrgent = "#ff5555"
+    barUrgentColor = "#ff5555"
+    barHeight = 25
+
+    [controls.jumpToUrgentWindow]
+    keys = [ "u" ]
+    modifiers = [ "super" ]
+
+    [controls.focusNext]
+    keys = [ "j" ]
+    modifiers = [ "super" ]
+    """
+    assert config.defaultMonitorSettings.barSettings.height == 25
+    assert config.keyComboTable.len == 1
+
+  it "warns about and skips negative sizes":
+    let config = loaded """
+    [settings]
+    gapSize = -5
+    barHeight = -1
+    borderWidth = -2
+    """
+    assert config.defaultMonitorSettings.layoutSettings.gapSize == 12
+    assert config.defaultMonitorSettings.barSettings.height == 20
+    assert config.windowSettings.borderWidth == 1
+
+  it "gives each clickRegion its own command":
+    let config = loaded """
+    [[startProcess]]
+    command = "true a"
+    clickRegion = 1
+
+    [[startProcess]]
+    command = "true b"
+    clickRegion = 2
+    """
+    assert config.regionClickActionTable.len == 2
+
   it "falls back to the embedded default config when the file does not parse":
     let path = getTempDir() / "nimdow-wl-test-broken.toml"
     writeFile(path, "[settings\nthis is = = not toml")
@@ -136,7 +196,7 @@ describe "Config settings":
     """
     assert config.defaultMonitorSettings.barSettings.hasWindowsColor == 0x00ff00
     config = loaded "[settings]\n"
-    assert config.defaultMonitorSettings.barSettings.hasWindowsColor == 0xfce8c3
+    assert config.defaultMonitorSettings.barSettings.hasWindowsColor == 0xf8f8f2
 
   it "accepts colors with a leading #":
     let config = loaded """
@@ -159,11 +219,11 @@ describe "Config settings":
     resizeStep = 0
     """
     let bar = config.defaultMonitorSettings.barSettings
-    assert bar.bgColor == 0x1c1b19
-    assert bar.fgColor == 0xfce8c3
+    assert bar.bgColor == 0x282a36
+    assert bar.fgColor == 0xf8f8f2
     assert bar.height == 20
     assert bar.transparency == 255
-    assert bar.showIndicator
+    assert not bar.showIndicator
     assert bar.fonts.len == 2
     assert config.defaultMonitorSettings.layoutSettings.gapSize == 12
     assert config.defaultMonitorSettings.layoutSettings.resizeStep == 10

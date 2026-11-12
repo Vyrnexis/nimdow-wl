@@ -51,37 +51,35 @@ proc toPangoString(font: string): string =
   let family = if families.len == 0: "monospace" else: families
   result = family & "," & style & " " & (if size.len == 0: "10" else: size)
 
-proc newFontDesc(spec: string): FontDesc =
-  FontDesc(desc: pango_font_description_from_string(spec.cstring))
-
-proc allFonts*(fonts: FontSet): PangoFontDescription =
-  ## The description that falls back through all the configured families.
-  fonts.all.desc
+proc primary*(fonts: FontSet): PangoFontDescription =
+  ## The default font, for text that selects none.
+  fonts.fonts[0]
 
 proc buildFontSet(names: seq[string]): FontSet =
-  ## One description per configured font (for explicit font selection) and one
-  ## combining all families so Pango falls back through them.
+  ## One description per configured font, for explicit font selection. Only
+  ## the first is used by default: listing an emoji font (e.g. Noto Color
+  ## Emoji, the default config's second font) as a fallback makes Pango draw
+  ## ASCII digits with its keycap glyphs. Fontconfig's own fallback still finds
+  ## emoji/icon glyphs.
   result = FontSet(names: names)
-  var
-    families: seq[string]
-    style, size: string
   for font in names:
-    result.fonts.add newFontDesc(toPangoString(font))
-    let parts = xftToPango(font)
-    if parts.families.len > 0:
-      families.add parts.families
-    if families.len == 1:
-      style = parts.style
-      size = parts.size
-  if families.len == 0:
-    families.add "monospace"
-  # Only the first family: listing an emoji font (e.g. Noto Color Emoji, the
-  # default config's second font) makes Pango draw ASCII digits with its
-  # keycap glyphs. Fontconfig's own fallback still finds emoji/icon glyphs.
-  let combined = families[0] & "," & style & " " & (if size.len == 0: "10" else: size)
-  result.all = newFontDesc(combined)
+    result.fonts.add pango_font_description_from_string(toPangoString(font).cstring)
   if result.fonts.len == 0:
-    result.fonts.add newFontDesc("monospace 10")
+    result.fonts.add pango_font_description_from_string("monospace 10")
+
+proc newLayout*(cr: Cairo, text: string, desc: PangoFontDescription): PangoLayout =
+  ## A new layout of the text; release it with g_object_unref.
+  result = pango_cairo_create_layout(cr)
+  pango_layout_set_font_description(result, desc)
+  pango_layout_set_text(result, text.cstring, text.len.cint)
+
+proc textSize*(cr: Cairo, text: string, desc: PangoFontDescription): tuple[w, h: int] =
+  ## The size of the text in pixels.
+  let layout = newLayout(cr, text, desc)
+  var w, h: cint
+  pango_layout_get_pixel_size(layout, addr w, addr h)
+  g_object_unref(layout)
+  (w.int, h.int)
 
 proc fontSetFor*(ctx: BarContext, names: seq[string]): FontSet =
   ## The font set of a configuration, built once and shared by all bars (and

@@ -1,10 +1,6 @@
 import
-  std/[unicode, strutils, tables, os, math],
-  types,
-  ../config/configloader,
-  ../wl/cairo,
-  ../wl/cursor,
-  ../wl/protocols/[river_window_management_v1, viewporter, fractional_scale_v1]
+  std/[unicode, strutils],
+  types
 
 proc sanitize*(s: string): string =
   ## Replaces invalid UTF-8 and line breaks, which pango does not like.
@@ -116,71 +112,112 @@ const
   bgColorTable = 48
   eightBitColor = 5
   twentyfourBitColor = 2
-  escape = 0x1B
-  finalByteRange = 0x40..0x7E
-  unitSeparator = 0x1F
+  escape = '\x1B'
+  unitSeparator = '\x1F'
+  maxParams = 32
 
-proc parseStatus*(this: StatusBar, str: string): ParsedStatus =
+proc parseSgr(str: string, first, last: int, sgr: var array[maxParams, int]): int =
+  ## Reads the `;` separated numbers of str[first .. last] into `sgr` (an empty
+  ## one is 0, what does not fit is dropped). Returns how many, or -1 if the
+  ## parameters are not just numbers.
+  var
+    param = -1
+    i = first
+  while i <= last + 1:
+    let c = if i <= last: str[i] else: ';'
+    inc i
+    if c == ';':
+      if result < maxParams:
+        sgr[result] = max(param, 0)
+        inc result
+      param = -1
+    elif c in {'0' .. '9'}:
+      param = max(param, 0) * 10 + (c.ord - '0'.ord)
+      if param > 100_000:
+        return -1
+    else:
+      return -1
+
+proc parseStatus*(str: string): ParsedStatus =
   ## Splits the status into runs of the same colors and font. Supports ANSI CSI
-  ## SGR colors and font selection, and the unit separator which splits the
-  ## status into clickable regions.
-  result.valid = true
-  const maxParams = 32
+  ## SGR colors and font selection (`ESC [ ... m`; other escape sequences are
+  ## dropped), and the unit separator which splits the status into clickable
+  ## regions.
   var
     color = -1
     bgColor = -1
     selectedFont = -1
-    parsingCsi = false
-    parsingSgr = false
-    invalidSgr = false
     sgr: array[maxParams, int]
-    sgrLen = 0
-    ## The number being read: -1 none yet, -2 not a number.
-    param = -1
     cell = 0
     i = 0
 
-  template addSgr() =
-    if param == -1:
-      if sgrLen < maxParams:
-        sgr[sgrLen] = 0
-        inc sgrLen
-    elif param == -2:
-      invalidSgr = true
-    elif sgrLen < maxParams:
-      sgr[sgrLen] = param
-      inc sgrLen
-    param = -1
-
   while i < str.len:
-    let start = i
-    var rune: Rune
-    fastRuneAt(str, i, rune, true)
-    if rune.int32 == escape:
-      parsingCsi = true
-      parsingSgr = false
-      invalidSgr = false
+    if str[i] == escape:
+      inc i
+      if i < str.len and str[i] == '[':
+        # Parameter and intermediate bytes (0x20..0x3F), then the final byte.
+        let first = i + 1
+        i = first
+        while i < str.len and str[i] in {'\x20' .. '\x3F'}:
+          inc i
+        if i >= str.len:
+          break
+        if str[i] notin {'@' .. '~'}:
+          # Malformed: dropped, the offending character is read as usual.
+          continue
+        let sgrLen = if str[i] == 'm': parseSgr(str, first, i - 1, sgr) else: -1
+        inc i
+        var k = 0
+        while k < sgrLen:
+          let code = sgr[k]
+          if code == resetCode:
+            color = -1
+            bgColor = -1
+            selectedFont = -1
+          elif code >= fontStart and code <= fontStop:
+            selectedFont = code - fontStart - 1
+          elif code >= fgColorStart and code <= fgColorStop:
+            color = basicColors[code - fgColorStart]
+          elif code >= bgColorStart and code <= bgColorStop:
+            bgColor = basicColors[code - bgColorStart]
+          elif code >= fgBrightColorStart and code <= fgBrightColorStop:
+            color = brightColors[code - fgBrightColorStart]
+          elif code >= bgBrightColorStart and code <= bgBrightColorStop:
+            bgColor = brightColors[code - bgBrightColorStart]
+          elif code == fgColorReset:
+            color = -1
+          elif code == bgColorReset:
+            bgColor = -1
+          elif sgrLen > k + 2 and code in {fgColorTable, bgColorTable} and
+              sgr[k + 1] == eightBitColor:
+            let index = sgr[k + 2]
+            if index in extraColors.low .. extraColors.high:
+              if code == fgColorTable:
+                color = extraColors[index]
+              else:
+                bgColor = extraColors[index]
+            k += 2
+          elif sgrLen > k + 4 and code in {fgColorTable, bgColorTable} and
+              sgr[k + 1] == twentyfourBitColor:
+            let (r, g, b) = (sgr[k + 2], sgr[k + 3], sgr[k + 4])
+            if max(r, max(g, b)) <= 255:
+              if code == fgColorTable:
+                color = (r shl 16) or (g shl 8) or b
+              else:
+                bgColor = (r shl 16) or (g shl 8) or b
+            k += 4
+          inc k
+      # Else a lone ESC: dropped, the next character is read as usual.
       continue
-    if parsingCsi:
-      if parsingSgr:
-        if rune.int32 != ord(';') and rune.int32 notin finalByteRange:
-          if param == -2 or rune.int32 < ord('0') or rune.int32 > ord('9'):
-            param = -2
-          else:
-            param = max(param, 0) * 10 + (rune.int32 - ord('0'))
-            if param > 100_000:
-              param = -2
-        else:
-          addSgr()
-      if rune.int32 == ord('['):
-        parsingSgr = true
-        sgrLen = 0
-        param = -1
-        continue
-    if not parsingCsi:
-      if rune.int32 == unitSeparator:
-        result.runs.add Run(isSeparator: true, first: cell, count: 1)
-      elif result.runs.len > 0 and not result.runs[^1].isSeparator and
+
+    let start = i
+    if str[i] == unitSeparator:
+      inc i
+      result.runs.add Run(isSeparator: true, first: cell, count: 1)
+    else:
+      var rune: Rune
+      fastRuneAt(str, i, rune, true)
+      if result.runs.len > 0 and not result.runs[^1].isSeparator and
           result.runs[^1].fg == color and result.runs[^1].bg == bgColor and
           result.runs[^1].font == selectedFont:
         result.runs[^1].text.add str[start ..< i]
@@ -190,53 +227,7 @@ proc parseStatus*(this: StatusBar, str: string): ParsedStatus =
           text: str[start ..< i], fg: color, bg: bgColor, font: selectedFont,
           first: cell, count: 1
         )
-      inc cell
-    if parsingCsi:
-      if rune.int32 in finalByteRange:
-        parsingCsi = false
-        if parsingSgr:
-          if not invalidSgr:
-            var k = 0
-            while k < sgrLen:
-              if sgr[k] == resetCode:
-                color = -1
-                bgColor = -1
-                selectedFont = -1
-                this.fontErrorLogged = false
-              elif sgr[k] >= fontStart and sgr[k] <= fontStop:
-                selectedFont = sgr[k] - fontStart - 1
-                this.fontErrorLogged = false
-              elif sgr[k] >= fgColorStart and sgr[k] <= fgColorStop:
-                color = basicColors[sgr[k] - fgColorStart]
-              elif sgr[k] >= bgColorStart and sgr[k] <= bgColorStop:
-                bgColor = basicColors[sgr[k] - bgColorStart]
-              elif sgr[k] >= fgBrightColorStart and sgr[k] <= fgBrightColorStop:
-                color = brightColors[sgr[k] - fgBrightColorStart]
-              elif sgr[k] >= bgBrightColorStart and sgr[k] <= bgBrightColorStop:
-                bgColor = brightColors[sgr[k] - bgBrightColorStart]
-              elif sgr[k] == fgColorReset:
-                color = -1
-              elif sgr[k] == bgColorReset:
-                bgColor = -1
-              elif sgrLen > k + 2 and sgr[k] in {fgColorTable, bgColorTable} and
-                  sgr[k + 1] == eightBitColor:
-                let index = sgr[k + 2]
-                if index in extraColors.low .. extraColors.high:
-                  if sgr[k] == fgColorTable:
-                    color = extraColors[index]
-                  else:
-                    bgColor = extraColors[index]
-                k += 2
-              elif sgrLen > k + 4 and sgr[k] in {fgColorTable, bgColorTable} and
-                  sgr[k + 1] == twentyfourBitColor:
-                let rgb = ((sgr[k + 2] and 0xff) shl 16) or
-                  ((sgr[k + 3] and 0xff) shl 8) or (sgr[k + 4] and 0xff)
-                if sgr[k] == fgColorTable:
-                  color = rgb
-                else:
-                  bgColor = rgb
-                k += 4
-              inc k
+    inc cell
 
   # Powerline glyphs (U+E0A0..U+E0D7) without a background of their own.
   for run in result.runs:

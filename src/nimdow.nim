@@ -127,10 +127,11 @@ when isMainModule:
     display = nimdow.display
     displayFd = display.fd().int
 
+  # The selector's data is unused: events are told apart by their fd.
   selector.registerHandle(displayFd, {Event.Read}, 0)
-  selector.registerHandle(ipcSocketFd, {Event.Read}, 1)
+  selector.registerHandle(ipcSocketFd, {Event.Read}, 0)
   if quitFd >= 0:
-    selector.registerHandle(quitFd.int, {Event.Read}, 3)
+    selector.registerHandle(quitFd.int, {Event.Read}, 0)
 
   # What each handle is registered for (the selector is only told about changes).
   var
@@ -166,7 +167,7 @@ when isMainModule:
       if (events and POLLOUT.int) != 0: wanted.incl Event.Write
       if trayFd < 0:
         trayFd = tray.fd()
-        selector.registerHandle(trayFd, wanted, 2)
+        selector.registerHandle(trayFd, wanted, 0)
         trayWanted = wanted
         # The fd must leave the selector before the bus closes it.
         tray.onClose = proc(fd: int) =
@@ -192,7 +193,7 @@ when isMainModule:
           displayReadable = true
       elif event.fd == ipcSocketFd:
         ipcReadable = true
-      elif event.fd == quitFd.int:
+      elif quitFd >= 0 and event.fd == quitFd.int:
         quitRequested = true
 
     if displayReadable:

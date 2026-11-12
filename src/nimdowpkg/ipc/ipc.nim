@@ -6,7 +6,7 @@ import
   strformat,
   times
 
-from posix import kill, errno, recv, poll, TPollfd, Pid, ESRCH, EINTR, EAGAIN, EWOULDBLOCK, POLLIN,
+from posix import kill, errno, recv, poll, TPollfd, Pid, ESRCH, EINTR, EAGAIN, POLLIN,
   stat, Stat, mkdir, getuid, S_IRWXU, EEXIST, Mode
 
 import ../sys/logger
@@ -112,7 +112,7 @@ proc recvMessage*(client: Socket): string =
       return message
     elif errno == EINTR:
       continue
-    elif errno == EAGAIN or errno == EWOULDBLOCK:
+    elif errno == EAGAIN:
       let remaining = int((deadline - epochTime()) * 1000)
       if remaining <= 0:
         return ""

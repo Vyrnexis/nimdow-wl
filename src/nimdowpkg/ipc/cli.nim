@@ -67,14 +67,11 @@ proc handleSpecialCommand(strArr: seq[string]): bool =
       return true
     else:
       log "Unknown command", lvlError
-      discard
+  return false
 
 proc handleCommandLineParams*(): bool =
   ## Executes actions based on cli params.
   ## Returns if nimdow-wl is intended to be ran normally.
-  when not declared(commandLineParams):
-    return true
-
   var p = initOptParser()
   var strArr: seq[string]
 

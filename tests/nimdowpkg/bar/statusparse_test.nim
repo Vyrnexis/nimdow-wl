@@ -6,7 +6,7 @@ import
 include bar/statusparse
 
 proc parse(s: string): ParsedStatus =
-  StatusBar().parseStatus(s)
+  parseStatus(s)
 
 describe "status parsing":
 
@@ -46,3 +46,17 @@ describe "status parsing":
   it "finds Powerline glyphs without a background":
     let p = parse("\u{E0BA}\e[42mx")
     assert p.probe == "\u{E0BA}"
+
+  it "only treats ESC [ ... m as SGR":
+    let p = parse("\e[31Aa\e[31mb")
+    assert p.runs[0].text == "a" and p.runs[0].fg == -1
+    assert p.runs[1].text == "b" and p.runs[1].fg == basicColors[1]
+
+  it "does not swallow the character after a lone ESC":
+    let p = parse("a\eBc")
+    assert p.runs.len == 1 and p.runs[0].text == "aBc"
+
+  it "ignores 24 bit colors with a component above 255":
+    let p = parse("\e[38;2;300;0;0ma\e[38;2;1;2;3mb")
+    assert p.runs[0].fg == -1
+    assert p.runs[1].fg == 0x010203

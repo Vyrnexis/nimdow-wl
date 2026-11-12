@@ -20,9 +20,8 @@ const
   scrollThreshold = 10.0
   ## wl_pointer.axis_value120 units of one wheel notch.
   wheelNotch = 120
-  ## wl_pointer versions that send frame/axis_stop and axis_value120.
+  ## wl_pointer version that sends frame/axis_stop.
   pointerFrameVersion = 5'u32
-  pointerValue120Version = 8'u32
   seatVersion = 8'u32
 
 # ---------------------------------------------------------------------------

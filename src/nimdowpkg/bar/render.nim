@@ -15,6 +15,8 @@ import
 const
   boxWidth = 4
   rightPadding = 4
+  ## Non-clickable space characters in front of the status.
+  statusPadding = 2
 
 # ---------------------------------------------------------------------------
 # Drawing
@@ -30,17 +32,19 @@ proc toColor*(hex: int, alpha: uint8 = 255): Color =
     alpha.float / 255
   )
 
-proc fillRect(this: StatusBar, color: Color, x, y, w, h: int, replace = false) =
+proc fillRect*[X, Y, W, H: SomeNumber](
+  cr: Cairo, color: Color, x: X, y: Y, w: W, h: H, replace = false
+) =
   ## `replace` writes the color as is (also its alpha) instead of blending.
   if w <= 0 or h <= 0:
     return
   if replace:
-    cairo_set_operator(this.cr, CAIRO_OPERATOR_SOURCE)
-  cairo_set_source_rgba(this.cr, color.r, color.g, color.b, color.a)
-  cairo_rectangle(this.cr, x.cdouble, y.cdouble, w.cdouble, h.cdouble)
-  cairo_fill(this.cr)
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE)
+  cairo_set_source_rgba(cr, color.r, color.g, color.b, color.a)
+  cairo_rectangle(cr, x.cdouble, y.cdouble, w.cdouble, h.cdouble)
+  cairo_fill(cr)
   if replace:
-    cairo_set_operator(this.cr, CAIRO_OPERATOR_OVER)
+    cairo_set_operator(cr, CAIRO_OPERATOR_OVER)
 
 proc tagLabels*(tagSettings: TagSettings): seq[string] =
   ## The texts of the tags, ready to be drawn.
@@ -89,26 +93,23 @@ proc drawLayout(this: StatusBar, layout: PangoLayout, height, x: int, color: Col
 
 proc fontFor(this: StatusBar, index: int): PangoFontDescription =
   if index == -1:
-    return this.fonts.allFonts
+    return this.fonts.primary
   if index > this.fonts.fonts.high:
     if not this.fontErrorLogged:
       log "Unable to select font " & $index &
         ", too few fonts defined in config.", lvlError
       this.fontErrorLogged = true
-    return this.fonts.allFonts
-  return this.fonts.fonts[index].desc
+    return this.fonts.primary
+  return this.fonts.fonts[index]
 
 proc blockMetricsFor(this: StatusBar, probe: string): BlockMetrics =
   ## Vertical extent of the colored backgrounds, from the ink of `probe`.
   ## Cached per config generation and scale (`checkMetrics`).
   let cached = this.blockMetrics
-  if cached.valid and cached.probe == probe and cached.height == this.wanted.height and
-      cached.bufH == this.pool.height:
+  if cached.valid and cached.probe == probe:
     return cached
-  result = BlockMetrics(
-    valid: true, probe: probe, height: this.wanted.height, bufH: this.pool.height
-  )
-  let layout = this.setText(probe, this.fonts.allFonts)
+  result = BlockMetrics(valid: true, probe: probe)
+  let layout = this.setText(probe, this.fonts.primary)
   var
     ink, logical: PangoRectangle
     pixelW, logicalH: cint
@@ -143,11 +144,10 @@ proc checkMetrics(this: StatusBar) =
 proc renderStringRightAligned(
   this: StatusBar,
   defaultColor: Color,
-  x, minX: int,
-  leftPadding: Natural = 0
+  x, minX: int
 ): int {.discardable.} =
   ## Renders the parsed status right aligned to position x and records its
-  ## clickable regions. The first `leftPadding` characters are not clickable.
+  ## clickable regions. The first `statusPadding` characters are not clickable.
   ## Nothing is drawn (or clickable) left of `minX`: a status that is too wide
   ## loses its start. Returns the x position where the string starts.
 
@@ -171,8 +171,9 @@ proc renderStringRightAligned(
   # of a segment unpainted.
   let metrics = this.blockMetricsFor(if this.parsed.probe.len == 0: "█" else: this.parsed.probe)
   let
-    blockTop = metrics.top
-    blockHeight = metrics.size
+    # No ink to line up with: the whole bar height.
+    blockTop = if metrics.size > 0: metrics.top else: 0.0
+    blockHeight = if metrics.size > 0: metrics.size else: this.wanted.height.float
     firstRegion = this.clickables.len
     overflow = stringWidth > x - minX
 
@@ -195,15 +196,7 @@ proc renderStringRightAligned(
       reset characters
       continue
     if run.bg != -1:
-      if blockHeight <= 0:
-        this.fillRect(toColor(run.bg), xLoc, 0, run.info.width, this.wanted.height, true)
-      else:
-        let c = toColor(run.bg)
-        cairo_set_operator(this.cr, CAIRO_OPERATOR_SOURCE)
-        cairo_set_source_rgba(this.cr, c.r, c.g, c.b, c.a)
-        cairo_rectangle(this.cr, xLoc.cdouble, blockTop, run.info.width.cdouble, blockHeight)
-        cairo_fill(this.cr)
-        cairo_set_operator(this.cr, CAIRO_OPERATOR_OVER)
+      this.cr.fillRect(toColor(run.bg), xLoc, blockTop, run.info.width, blockHeight, true)
     this.drawLayout(
       this.setText(run.text, this.fontFor(run.font)), run.info.height, xLoc,
       if run.fg == -1: defaultColor else: toColor(run.fg)
@@ -215,9 +208,9 @@ proc renderStringRightAligned(
           if k + 1 < run.count: xLoc + run.info.characters[k + 1]
           else: xLoc + run.info.width
         pos = run.first + k
-      if pos >= leftPadding:
+      if pos >= statusPadding:
         characters.add(cellStart - last)
-      if leftPadding > pos:
+      if statusPadding > pos:
         last = cellStop
     xLoc += run.info.width
     current = xLoc
@@ -244,7 +237,6 @@ proc renderTags(this: StatusBar): int =
   # Each <space> is the same width as the <box>
   let
     bg = toColor(this.settings.bgColor, this.settings.transparency)
-    urgent = toColor(this.settings.urgentColor)
 
   var
     pad = this.settings.tagPadding.int
@@ -262,7 +254,7 @@ proc renderTags(this: StatusBar): int =
     elif not state.empty:
       fgColor = toColor(this.settings.hasWindowsColor)
 
-    let layout = this.setText(text, this.fonts.allFonts)
+    let layout = this.setText(text, this.fonts.primary)
     if this.tagInfos.len < i:
       this.tagInfos.setLen i
     if not this.tagInfos[i - 1].valid:
@@ -271,14 +263,10 @@ proc renderTags(this: StatusBar): int =
 
     if not state.empty:
       let boxXLoc = textXPos - pad div 2
-      if state.urgent:
-        this.fillRect(
-          urgent, textXPos - pad, 0, info.width + pad * 2, this.wanted.height
-        )
       if this.settings.showIndicator:
-        this.fillRect(fgColor, boxXLoc, 0, 4, 4)
+        this.cr.fillRect(fgColor, boxXLoc, 0, 4, 4)
         if not state.hasCurrent:
-          this.fillRect(if state.urgent: urgent else: bg, boxXLoc + 1, 1, 2, 2, true)
+          this.cr.fillRect(bg, boxXLoc + 1, 1, 2, 2, true)
 
     this.drawLayout(layout, info.height, textXPos, fgColor)
     this.clickables.add (
@@ -322,11 +310,11 @@ proc renderTray(this: StatusBar): int =
       let
         fg = toColor(this.settings.fgColor)
         label = (if item.id.len > 0: item.id else: item.title).strip()
-      this.fillRect((fg.r, fg.g, fg.b, 0.35), x, y, size, size)
+      this.cr.fillRect((fg.r, fg.g, fg.b, 0.35), x, y, size, size)
       if label.len > 0:
         let letter = sanitize($label.runeAt(0)).toUpper()
         let
-          layout = this.setText(letter, this.fonts.allFonts)
+          layout = this.setText(letter, this.fonts.primary)
           (w, h) = layout.pixelSize()
         cairo_set_source_rgba(this.cr, fg.r, fg.g, fg.b, fg.a)
         cairo_move_to(this.cr, (x + (size - w) div 2).cdouble, (y + (size - h) div 2).cdouble)
@@ -340,15 +328,12 @@ proc renderStatus(this: StatusBar, rightEdge, minX: int): int =
   ## Returns the x position where the status starts.
   result = rightEdge
   if this.wanted.status.len > 0:
-    # Two non-clickable padding characters in front of the status.
-    const padding = 2
-    if not this.parsed.valid or this.parsed.source != this.wanted.status:
+    if this.parsed.source != this.wanted.status:
       # Parsed once per status text, not on every redraw.
-      this.parsed = this.parseStatus(' '.repeat(padding) & sanitize(this.wanted.status))
+      this.parsed = parseStatus(' '.repeat(statusPadding) & sanitize(this.wanted.status))
       this.parsed.source = this.wanted.status
-    result = this.renderStringRightAligned(
-      toColor(this.settings.fgColor), rightEdge, minX, padding
-    )
+      this.fontErrorLogged = false
+    result = this.renderStringRightAligned(toColor(this.settings.fgColor), rightEdge, minX)
 
 proc titleInfoFor(this: StatusBar, layout: PangoLayout, title: string, width: int): TextInfo =
   ## The measurement of the laid out title, kept while neither the title nor
@@ -373,7 +358,7 @@ proc renderActiveWindowTitle(this: StatusBar, region, minRenderX, maxRenderX: in
     textColor =
       if this.wanted.monitorSelected: toColor(this.settings.selectionColor)
       else: toColor(this.settings.fgColor)
-    desc = this.fonts.allFonts
+    desc = this.fonts.primary
   # One layout is measured and drawn.
   case this.settings.windowTitlePosition
   of wtpLeft:
@@ -426,7 +411,7 @@ proc draw*(this: StatusBar, data: pointer) =
 
   # Background, including its transparency.
   let bg = toColor(this.settings.bgColor, this.settings.transparency)
-  this.fillRect(bg, 0, 0, width, height, true)
+  this.cr.fillRect(bg, 0, 0, width, height, true)
 
   let tagLengthPixels = this.renderTags()
   # The title needs to know where the status starts, but the click regions are

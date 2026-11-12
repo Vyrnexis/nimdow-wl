@@ -8,6 +8,8 @@ package because every installed name differs (binary, config directory, session,
 This is a Wayland port of [nimdow](https://github.com/avahe-kellenberger/nimdow) by avahe-kellenberger,
 written in [Nim](https://nim-lang.org/). X11 is no longer supported. Licensed under the GPL-2.0 (see `LICENSE`).
 
+![nimdow-wl with the desktop package: Gruvbox bar, nimdow-wl-status and the Reverie wallpaper](doc/screenshot.jpg)
+
 ## Features
 
 - dwm-style tiling: master/stack layout with adjustable master count and width, tags (workspaces), floating and

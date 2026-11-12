@@ -6,7 +6,7 @@
 # 1. pacstraps a clean Arch (core + extra only, official mirrors) into /var/tmp
 # 2. as a normal user: installs paru-bin, then `paru -S nimdow-wl-desktop-git` from the AUR
 # 3. boots the container, logs that user in, runs River headless with nimdow-wl and checks
-#    the first-run config copy, autostart, session targets, IPC, portal and exitsession
+#    the first-run config copy, autostart, session targets, IPC, portal and `nimdow-wl exitsession`
 # 4. powers the container off and deletes it (--keep leaves it for inspection)
 #
 # Results (summary, logs, screenshot) go to /var/tmp/nimdow-wl-test-result.

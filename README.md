@@ -13,7 +13,7 @@ written in [Nim](https://nim-lang.org/). X11 is no longer supported. Licensed un
 - dwm-style tiling: master/stack layout with adjustable master count and width, tags (workspaces), floating and
   fullscreen windows, a scratchpad, multiple monitors, and app rules (tags, monitor, floating/fullscreen state).
 - Built-in status bar: tags on the left, the focused window's title in the center, status text on the right.
-  Set the text with `nimdow-wl --status "text"`.
+  Set the text with `nimdow-wl --status "text"`; it supports colours and click actions.
 - System tray using the StatusNotifierItem protocol, with dbusmenu context menus and tooltips.
 - Layer-shell support: launchers, notification daemons, wallpapers and other bars work, and their exclusive zones
   shrink the tiled area. The bar is rendered at the output's (fractional) scale.
@@ -26,27 +26,20 @@ written in [Nim](https://nim-lang.org/). X11 is no longer supported. Licensed un
 
 ## Requirements
 
-- `river` >= 0.5
-- Runtime libraries: `wayland`, `libxkbcommon`, `cairo`, `pango`, `librsvg`, `systemd-libs`, `glib2`,
-  `harfbuzz`, `gdk-pixbuf2`
-- Build: `nim`, `pkgconf`, `git`, and the `parsetoml` nimble package (`nimble` fetches it)
-- Optional: `xdg-desktop-portal-gtk` (portals), `mako` (notifications)
+`river` >= 0.5. Runtime and build dependencies (libraries, `nim`, `pkgconf`, the `parsetoml` nimble package) are
+listed in `packaging/arch/PKGBUILD`; `nimble install -d` fetches `parsetoml`.
 
 ## Installation
 
-### Arch Linux
-
-See [Install (Arch / AUR)](#install-arch--aur) below. `nimdow-wl-git` can be installed alongside the X11 `nimdow`.
-
-### Install (Arch / AUR)
+### Arch Linux (AUR)
 
 `packaging/arch/PKGBUILD` is a split package:
 
 - `nimdow-wl-git`: the window manager only (River integration, systemd user target, portal config, man page).
-- `nimdow-wl-desktop-git`: a complete desktop on a minimal install. It pulls in `nimdow-wl-git` and ships
-  `/etc/xdg/nimdow-wl/config.toml` (kitty, nimlaunch, firefox on super+i, volume/brightness/screenshot keys, status bar
-  click actions, autostarted swaybg (with the "Reverie" wallpaper, `/usr/share/backgrounds/nimdow-wl/reverie.jpg`), mako, polkit agent, `nimdow-wl-status` and swayidle, which locks with swaylock after 10 minutes and before suspend) and
-  `/etc/xdg/nimdow-wl/status.toml` (the status bar segments).
+- `nimdow-wl-desktop-git`: a complete desktop on a minimal install (dependencies are in the PKGBUILD). It adds
+  the default `/etc/xdg/nimdow-wl/config.toml` (kitty, nimlaunch, volume/brightness/screenshot keys, status bar click
+  actions, autostart of swaybg, mako, a polkit agent, `nimdow-wl-status` and swayidle, which locks with swaylock
+  after 10 minutes and before suspend) and `/etc/xdg/nimdow-wl/status.toml` (the bar segments).
 
 ```sh
 yay -S nimdow-wl-desktop-git      # or: cd packaging/arch && makepkg -si
@@ -54,12 +47,8 @@ sudo systemctl enable --now NetworkManager
 river -c nimdow-wl                # from a TTY, or install a login manager (sddm, greetd-tuigreet)
 ```
 
-On first login the desktop configs are copied to `~/.config/nimdow-wl/config.toml` and
-`~/.config/nimdow-wl/status.toml`; edit those copies.
-`nimdow-wl-desktop-git` depends on: `nimdow-wl-git polkit-gnome mako swaybg swaylock swayidle xdg-desktop-portal-gtk xorg-xwayland
-gnome-keyring kitty nimlaunch-bin nimdow-wl-status wl-clipboard grim slurp libnotify pipewire pipewire-pulse
-wireplumber brightnessctl networkmanager ttf-meslo-nerd pacman-contrib`. Optional: `pavucontrol`, `nautilus`,
-`adw-gtk-theme`, `network-manager-applet`, `sddm`, `greetd-tuigreet`.
+On first run nimdow-wl copies `config.toml` and `nimdow-wl-status` copies `status.toml` to `~/.config/nimdow-wl/`
+(existing files are kept); edit those copies.
 
 ### From source
 
@@ -103,10 +92,17 @@ If the user config does not exist at startup, the file chosen by 2 or 3 is copie
 is never overwritten) and loaded. If the copy fails (e.g. a read-only home) the source is used as is.
 `/usr/share/nimdow-wl/config.default.toml` is a reference copy.
 
-`config.default.toml` documents every setting. The default modifier is Super; reload the config with
-Super+Shift+R. The [upstream wiki](https://github.com/avahe-kellenberger/nimdow/wiki/User-Configuration-File)
-describes the config format in more detail (the X11-specific parts do not apply). Use
-`nimdow-wl --config ./other.toml` to start with another file.
+`config.default.toml` documents every setting (also `man nimdow-wl`). The default modifier is Super; reload the
+config with Super+Shift+R. Use `nimdow-wl --config ./other.toml` to start with another file.
+
+### App rules
+
+A `[[appRule]]` applies to the first window whose `class`, `instance` and `title` all match; `class` and `instance`
+are both compared with the window's `app_id`. Matching is exact and case-sensitive; a leading and/or trailing `*`
+matches a suffix, prefix or substring (`"*term"`, `"foot*"`, `"*foo*"`), and an empty or missing field matches
+everything. Keys: `monitor` (1 = first), `tags`, `state` (`normal`, `floating`, `fullscreen`) and, with
+`state = "floating"`, `x`, `y`, `width`, `height` in pixels (`x`/`y` relative to the output's top-left corner and kept
+inside the usable area; without them the window is centered).
 
 ### Input devices
 
@@ -148,7 +144,7 @@ new install shows its keys at first login). It uses the bar's fonts and colours 
 `barForegroundColor`, `barSelectionColor`, `barHasWindowsColor`, `menuBorderColor`, `barTransparency`).
 `nimdow-wl --dumpState` shows `overlayVisible`.
 
-### Status bar text
+### Status bar text and click regions
 
 nimdow-wl has no built-in clock or system info; a script sets the text:
 
@@ -156,7 +152,18 @@ nimdow-wl has no built-in clock or system info; a script sets the text:
 while true; do nimdow-wl --status "$(date +%H:%M)"; sleep 30; done
 ```
 
-Put that loop in `[autostart] exec` in the config (or in a script you start from there).
+Put that loop in `[autostart] exec` in the config. The desktop package already feeds the bar through
+`nimdow-wl-status`.
+
+The text may contain ANSI SGR sequences (`ESC[...m`): `0` reset, `30-37`/`90-97` foreground, `40-47`/`100-107`
+background, `39`/`49` default colour, `38;5;N`/`48;5;N` (256 colours), `38;2;R;G;B`/`48;2;R;G;B` (24 bit) and
+`11-20` to pick the 1st to 10th of `barFonts`. The byte `0x1F` splits the text into segments, e.g.
+`nimdow-wl --status "$(printf 'one\037two')"`.
+
+A `[[startProcess]]` with `clickRegion = N` (and no `keys`) runs its command when region N is clicked: region 0 is
+the window title, regions 1, 2, ... are the segments, left to right. Tags are not regions. In the command,
+`%1` is the index of the clicked character, `%2 %3` the region's x and y, `%4 %5` the click's x and y, `%6` the
+region's width, `%7` the button (1 left, 2 middle, 3 right, 4 scroll up, 5 scroll down) and `%0` all of them.
 
 ### Other programs
 
@@ -186,7 +193,6 @@ exist on Wayland). It needs the D-Bus session bus.
 ## Differences from X11 nimdow
 
 - No `xsetroot`: the bar status is set with `nimdow-wl --status`. There is no XEmbed tray; use the SNI tray above.
-- App rules match the window's `app_id`: both `class` and `instance` are compared against it.
 - Quitting is the `exitSession` control instead of a `pkill nimdow` key binding.
 - Default programs are Wayland ones (`fuzzel`, `alacritty`) instead of `dmenu_run` and `st`.
 - App rules are evaluated when a window is first placed. A window without an `app_id` (or without a title, if a
@@ -215,9 +221,9 @@ nimdow-wl --dumpState [file]   write the running instance's state as JSON
                                (default $XDG_RUNTIME_DIR/nimdow-wl-state.json)
 ```
 
-Window manager controls can also be run through the same client, e.g. `nimdow-wl togglefloating` or
-`nimdow-wl gototag 3`. See `man nimdow-wl` and the
-[upstream wiki](https://github.com/avahe-kellenberger/nimdow/wiki/CLI-Client) for the command list.
+Every control can also be run through the same client; dashes are optional and case is ignored, so
+`nimdow-wl --toggle-floating`, `nimdow-wl togglefloating` and `nimdow-wl gototag 3` all work, as do `--lock-session`,
+`--toggle-hotkey-overlay` and `--exit-session`. `man nimdow-wl` lists them all.
 
 ## Development
 

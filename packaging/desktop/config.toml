@@ -1,14 +1,10 @@
 # nimdow-wl desktop defaults (installed to /etc/xdg/nimdow-wl/config.toml and copied to
 # ~/.config/nimdow-wl/config.toml on first login; edit that copy, then press super+shift+r to reload).
 
-# App Rules
-# class and instance are both matched against the window's app_id. Optional keys:
-# instance, monitor = 1, tags = [ 1, 4, 7 ], state = "normal" | "floating" | "fullscreen".
+# App rules: all keys are described in /usr/share/nimdow-wl/config.default.toml.
 [[appRule]]
 class = "nimlaunch"
 title = "nimlaunch"
-# monitor = 1
-# tags = [ 1, 4, 7 ]
 state = "floating"
 
 # Start external programs
@@ -83,7 +79,7 @@ description = "Screenshot region to clipboard"
 keys = [ "Print" ]
 modifiers = []
 
-# --- nimdow-wl-status click regions (%7 = button: 1 left, 3 right, 4/5 scroll) ---
+# --- nimdow-wl-status click regions (%7 = button: 1 left, 3 right, 4/5 scroll; see man nimdow-wl) ---
 # Regions follow the segment order in ~/.config/nimdow-wl/status.toml: 1 updates, 2 weather, 3 memory,
 # 4 volume, 5 battery, 6 date/time, 7 network (region 0 is the window title).
 [[startProcess]]
@@ -160,43 +156,14 @@ exec = [
   # General settings
   loggingEnabled = false
   reverseTagScrolling = false
-  # The key used for moving and resizing windows.
-  # All options: "control", "shift", "alt", "super", "caps lock", "mod1", "mod2", "mod3", "mod4", "mod5"
-  # alt is an alias for Mod1Mask,
-  # super is an alias for Mod4Mask
-  # See config/keys.nim for details
+  # The modifier held for moving and resizing windows with the mouse
+  # (valid names: control, shift, alt, super, mod1, mod3, mod4, mod5).
   modKey = "super"
 
-# Input devices. Every key is optional: a key that is not set leaves the compositor's
-# or libinput's default alone, so without this section nothing changes.
-# Invalid values are logged and ignored. Settings apply at startup, when a device is
-# plugged in and on config reload; a key removed later keeps its value until River
-# restarts (or the device is replugged).
-# Needs River 0.5 (river_input_manager_v1, river_xkb_config_v1, river_libinput_config_v1).
-
-# Tap to click. More settings (all optional, see config.default.toml for the full list):
-[input.keyboard]
-  #layout = "us"
-  #variant = ""
-  #options = "caps:escape"
-  #repeatRate = 25
-  #repeatDelay = 600
-  #numlock = true
-
+# Input devices: all keys (keyboard layout, scrolling, ...) are listed in
+# /usr/share/nimdow-wl/config.default.toml.
 [input.touchpad]
   tap = true
-  #naturalScroll = false
-  #disableWhileTyping = true
-  #accelSpeed = 0.0
-  #accelProfile = "adaptive"
-  #clickMethod = "clickfinger"
-  #scrollMethod = "twofinger"
-
-[input.mouse]
-  #naturalScroll = false
-  #accelSpeed = 0.0
-  #accelProfile = "flat"
-  #leftHanded = false
 
 # Window manager controls
 [controls]
@@ -332,13 +299,13 @@ exec = [
   keys = [ "1", "2", "3", "4", "5", "6", "7", "8", "9" ]
   modifiers = [ "super", "shift", "control" ]
 
-	[controls.increaseMasterWidth]
-	keys = [ "l" ]
-	modifiers = [ "super" ]
+  [controls.increaseMasterWidth]
+  keys = [ "l" ]
+  modifiers = [ "super" ]
 
-	[controls.decreaseMasterWidth]
-	keys = [ "h" ]
-	modifiers = [ "super" ]
+  [controls.decreaseMasterWidth]
+  keys = [ "h" ]
+  modifiers = [ "super" ]
 
   [controls.moveWindowToScratchpad]
   keys = [ "s" ]
@@ -371,26 +338,7 @@ exec = [
   keys = [ "b" ]
   modifiers = [ "super" ]
 
-# Example monitor settings:
-# [monitors]
-  # [monitors.default.tags]
-  # 1.displayString = "one"
-  # 2.displayString = "foobar"
-  # Set the number of master windows for ALL monitors.
-  # all.numMasterWindows = 2
-  # all.defaultMasterWidthPercentage = 60
-
-  # [monitors.1.tags]
-  # 2.displayString = "two"
-  # Set the number of master windows per-monitor.
-  # all.numMasterWindows = 3
-  # Set the number of master windows per-tag.
-  # 2.numMasterWindows = 1
-
-  # [monitors.2.tags]
-  # 2.displayString = "too"
-
-
+# Monitors (more options: /usr/share/nimdow-wl/config.default.toml).
 # Tags: Nerd Font numeric boxes (nf-md-numeric_N_box)
 [monitors]
   [monitors.default.tags]

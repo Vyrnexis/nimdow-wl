@@ -1,4 +1,4 @@
-.TH NIMDOW-WL 1
+.TH NIMDOW-WL 1 "" "nimdow-wl"
 .SH NAME
 nimdow-wl \- a dynamic tiling window manager for the River Wayland compositor
 .
@@ -156,16 +156,25 @@ Starts nimdow-wl with the given config file.
 .TP
 .BI \-\-status " TEXT"
 Sets the text shown in the status bar
-(e.g. from a script: \fBnimdow --status "$(date)"\fR).
+(e.g. from a script: \fBnimdow-wl \-\-status "$(date)"\fR).
+See
+.B BAR TEXT AND CLICK REGIONS
+for colours and click actions.
 .TP
 .BR \-\-dumpState " [" \fIFILE\fR ]
 Makes the running instance write its state (monitors, tags, windows, bar, menus) as JSON.
 Meant for debugging, bug reports and tests.
-.TP
-.BR \-\-exitSession
-Exits nimdow-wl (River exits with it).
 .
 .SS "IPC Commands"
+Every window manager control of the
+.B [controls]
+table is also a command line option.
+The dashes are optional and the case is ignored:
+.B nimdow-wl \-\-toggle\-floating
+is the same as
+.BR "nimdow-wl togglefloating" .
+Commands that take a tag number are used as
+.BR "nimdow-wl gototag 3" .
 .
 .TP
 .BR --reload-config
@@ -301,6 +310,143 @@ Brings back the window most recently added to the scratchpad.
 .TP
 .BR --toggle-statusbar
 Hides or shows the status bar on the selected monitor.
+.
+.TP
+.BR --lock-session
+Runs the
+.B lockCommand
+setting.
+.
+.TP
+.BR --toggle-hotkey-overlay
+Shows or hides the key bindings overlay.
+.
+.TP
+.BR --exit-session " (also " --exitSession )
+Exits nimdow-wl (River exits with it).
+.
+.SH BAR TEXT AND CLICK REGIONS
+The status text may contain ANSI SGR colour sequences
+.RB ( ESC [ ... m ):
+0 resets, 30\-37 and 90\-97 set the foreground, 40\-47 and 100\-107 the background,
+39 and 49 restore the defaults,
+38;5;N and 48;5;N select a 256 colour palette entry,
+38;2;R;G;B and 48;2;R;G;B a 24 bit colour,
+and 11\-20 select the 1st to 10th font of
+.BR barFonts .
+Other escape sequences are dropped, and line breaks and tabs become spaces.
+.
+.PP
+The byte 0x1F (unit separator) splits the text into segments.
+Clicking the bar runs the
+.B [[startProcess]]
+entry whose
+.B clickRegion
+is the number of the clicked part:
+0 is the window title and 1, 2, ... are the segments of the status text, left to right.
+Tags are not regions (a click switches to the tag).
+An entry with
+.B clickRegion
+does not use
+.BR keys .
+In the command these placeholders are replaced:
+.TP
+.B %1
+Index of the clicked character in the region, counted from 0.
+.TP
+.B %2 %3
+X and Y position of the region.
+.TP
+.B %4 %5
+X and Y position of the click.
+.TP
+.B %6
+Width of the region.
+.TP
+.B %7
+Button: 1 left, 2 middle, 3 right, 4 scroll up, 5 scroll down.
+.TP
+.B %0
+All of %1 to %7, separated by spaces.
+.PP
+Example, two clickable regions (1 and 2):
+.PP
+.RS
+.nf
+\fBnimdow-wl \-\-status "$(printf 'one\e037two')"\fR
+.fi
+.RE
+.
+.SH CONFIGURATION
+The configuration is a TOML file, see
+.B FILES
+for where it is found.
+.B /usr/share/nimdow-wl/config.default.toml
+documents every key.
+The file is reloaded with the
+.B reloadConfig
+control (Super+Shift+R).
+Its tables are:
+.TP
+.B [settings]
+Window, bar, tray, layout, floating, scratchpad and general settings
+(colours, fonts, gaps,
+.BR lockCommand ", " modKey ", ...)."
+.TP
+.B [controls]
+Key bindings for the window manager controls (the IPC commands),
+as
+.B [controls.NAME]
+tables with
+.B keys
+and
+.BR modifiers .
+Modifiers: control, shift, alt (mod1), super (mod4), mod3, mod5.
+.TP
+.B [[startProcess]]
+Runs a command.
+Keys:
+.BR command ,
+.B keys
+and
+.BR modifiers ,
+.B description
+(shown in the key bindings overlay),
+.B whileLocked
+(stay active while the session is locked) and
+.B clickRegion
+(see above).
+.TP
+.B [[appRule]]
+Window rules. The first rule whose
+.BR class ", " instance " and " title
+all match applies (both
+.B class
+and
+.B instance
+are compared with the app_id).
+Matching is exact and case-sensitive;
+a leading and/or trailing * matches a suffix, prefix or substring,
+and an empty field matches everything.
+Effects:
+.B monitor
+(1 is the first),
+.B tags
+and
+.BR state " (normal, floating, fullscreen)."
+For floating windows
+.BR x ", " y ", " width " and " height
+(pixels, relative to the output) set position and size.
+.TP
+.B [autostart]
+.B exec
+is a list of shell commands run at startup.
+.TP
+.B [monitors]
+Tag names and the master window count and width per monitor and tag.
+.TP
+.B [input.keyboard], [input.touchpad], [input.mouse]
+Input device settings, see above.
 .
 .SH FILES
 .TP

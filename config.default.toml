@@ -1,12 +1,22 @@
-# App Rules
+# App rules: the first [[appRule]] whose class, instance and title all match applies when
+# a window is first placed. class and instance are both matched against the window's
+# app_id. Matching is exact and case-sensitive; a leading and/or trailing * matches a
+# suffix, prefix or substring ("*term", "foot*", "*foo*"). An empty or missing field
+# matches everything.
+# Keys: class, instance, title (match), monitor (1 = first), tags (list of 1-9),
+#       state ("normal", "floating", "fullscreen"),
+#       x, y, width, height (pixels; only with state = "floating". x and y are relative
+#       to the output's top-left corner and clamped into the usable area; without
+#       x and y the window is centered; a missing width or height keeps its own size).
 # Example:
 # [[appRule]]
-# class = "foot"   # class and instance are both matched against the window's app_id
-# instance = "foot"
-# title = "foot"
+# class = "foot"
+# title = "foot*"
 # monitor = 1
 # tags = [ 1, 4, 7 ]
-# state = "floating" # normal, floating, and fullscreen are all valid.
+# state = "floating"
+# width = 800
+# height = 500
 
 # Start external programs. The optional description is what the key bindings
 # overlay (super+/) shows; without it the command is shown.
@@ -28,9 +38,14 @@ command = "alacritty"
 keys = [ "Return" ]
 modifiers = [ "super" ]
 
-# Example: Start process when region is clicked, see github wiki for what constitutes a region
+# Example: run a command when a bar region is clicked (see "Bar click regions" in
+# `man nimdow-wl`). Region 0 is the window title, 1 and up are the segments of the
+# --status text, which are separated by the byte 0x1F. Placeholders: %1 character
+# index, %2 %3 region x y, %4 %5 click x y, %6 region width, %7 button
+# (1 left, 2 middle, 3 right, 4 scroll up, 5 scroll down), %0 all of them.
+# A startProcess with clickRegion ignores keys.
 # [[startProcess]]
-# command = "notify-send \"Id: %1, rx: %2, cx: %4, cy: %5, w: %6, b: %7\""
+# command = "notify-send \"region clicked with button %7\""
 # clickRegion = 0
 
 # Example: a key that keeps working while the session is locked (see lockSession).
@@ -56,7 +71,7 @@ exec = [
   borderColorFocused = "#50fa7b"
   # Bar settings
   barHeight = 20
-  # System tray (StatusNotifierItem, see README). Icon size is barHeight - 2 * trayIconPadding.
+  # System tray (StatusNotifierItem, see README.md). Icon size is barHeight - 2 * trayIconPadding.
   trayEnabled = true
   trayMonitor = 1 # 1 = the first monitor's bar, 2 = the second, ...; 0 = follow the selected monitor
   trayIconPadding = 2
@@ -94,11 +109,9 @@ exec = [
   hotkeyOverlayAtStartup = false
   loggingEnabled = false
   reverseTagScrolling = false
-  # The key used for moving and resizing windows.
-  # All options: "control", "shift", "alt", "super", "mod1", "mod3", "mod4", "mod5"
-  # alt is an alias for Mod1Mask,
-  # super is an alias for Mod4Mask
-  # See config/keys.nim for details
+  # The modifier held for moving and resizing windows with the mouse.
+  # Valid names (also used in "modifiers" lists): "control", "shift", "alt", "super",
+  # "mod1", "mod3", "mod4", "mod5". alt is mod1 and super is mod4.
   modKey = "super"
 
 # Input devices. Every key is optional: a key that is not set leaves the compositor's
@@ -272,13 +285,13 @@ exec = [
   keys = [ "1", "2", "3", "4", "5", "6", "7", "8", "9" ]
   modifiers = [ "super", "shift", "control" ]
 
-	[controls.increaseMasterWidth]
-	keys = [ "l" ]
-	modifiers = [ "super" ]
+  [controls.increaseMasterWidth]
+  keys = [ "l" ]
+  modifiers = [ "super" ]
 
-	[controls.decreaseMasterWidth]
-	keys = [ "h" ]
-	modifiers = [ "super" ]
+  [controls.decreaseMasterWidth]
+  keys = [ "h" ]
+  modifiers = [ "super" ]
 
   [controls.moveWindowToScratchpad]
   keys = [ "s" ]

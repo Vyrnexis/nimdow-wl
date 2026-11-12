@@ -3,6 +3,7 @@ import
   os,
   parsetoml,
   sets,
+  strutils,
   tables,
   config/configloader,
   config/keys,
@@ -137,16 +138,27 @@ describe "Config loading":
     assert config.windowSettings.borderWidth == 1
 
   it "gives each clickRegion its own command":
-    let config = loaded """
+    let dir = getTempDir() / "nimdow-wl-test-regions"
+    removeDir(dir)
+    createDir(dir)
+    defer: removeDir(dir)
+    let config = loaded("""
     [[startProcess]]
-    command = "true a"
+    command = "touch DIR/one"
     clickRegion = 1
 
     [[startProcess]]
-    command = "true b"
+    command = "touch DIR/two"
     clickRegion = 2
-    """
+    """.replace("DIR", dir))
     assert config.regionClickActionTable.len == 2
+    config.regionClickActionTable[1](0, 0, (0, 0), (0, 0), 1)
+    for _ in 0 ..< 100:
+      if fileExists(dir / "one"): break
+      sleep 20
+    sleep 100
+    assert fileExists(dir / "one")
+    assert not fileExists(dir / "two")
 
   it "falls back to the embedded default config when the file does not parse":
     let path = getTempDir() / "nimdow-wl-test-broken.toml"

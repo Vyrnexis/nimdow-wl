@@ -508,6 +508,14 @@ proc populateControlsTable(this: Config, configTable: TomlTable) =
           Binding(name: ($(commandOpt.get)).toLower()), controlToml.tableVal[]
         )
 
+proc regionAction(this: Config, command: string): RegionClickAction =
+  ## A separate proc so each action captures its own `command` (a closure made
+  ## directly in the loop would share the loop's variable: all run the last one).
+  proc(idx: int, width: int, regionCord: Point[int], clickCord: Point[int], button: int) =
+    this.runCommandWithArgs(
+      command, $idx, $regionCord.x, $regionCord.y, $clickCord.x, $clickCord.y, $width, $button
+    )
+
 proc populateExternalProcessSettings(this: Config, configTable: TomlTable) =
   if not configTable.hasKey("startProcess"):
     return
@@ -533,18 +541,7 @@ proc populateExternalProcessSettings(this: Config, configTable: TomlTable) =
         if declaration.hasKey("keys"):
           log "startProcess \"" & command & "\" sets both clickRegion and keys; " &
             "only clickRegion is used", lvlWarn
-        this.regionClickActionTable[clickRegion.get] =
-          proc(idx: int, width: int, regionCord: Point[int], clickCord: Point[int], button: int) =
-            this.runCommandWithArgs(
-              command,
-              $idx,
-              $regionCord.x,
-              $regionCord.y,
-              $clickCord.x,
-              $clickCord.y,
-              $width,
-              $button
-            )
+        this.regionClickActionTable[clickRegion.get] = this.regionAction(command)
       else:
         this.configureExternalProcess(command)
         this.populateControlAction(

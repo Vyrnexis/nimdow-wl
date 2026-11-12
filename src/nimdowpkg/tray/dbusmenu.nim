@@ -15,6 +15,8 @@ const
   MenuInterface* = "com.canonical.dbusmenu"
   ## Deepest submenu nesting that is parsed.
   MaxDepth = 8
+  ## Most entries kept per menu.
+  MaxEntries = 500
   ## The only properties the popup uses; GetLayout is asked for just these.
   LayoutProperties = ["type", "label", "enabled", "visible", "toggle-type", "toggle-state",
     "children-display", "icon-name"]
@@ -104,7 +106,7 @@ proc readEntry(m: SdBusMessage, depth: int): MenuEntry =
     while sd_bus_message_enter_container(m, 'v', "(ia{sv}av)") > 0:
       if depth < MaxDepth:
         let child = readEntry(m, depth + 1)
-        if child != nil:
+        if child != nil and result.children.len < MaxEntries:
           result.children.add child
       else:
         discard sd_bus_message_skip(m, "(ia{sv}av)")

@@ -14,16 +14,14 @@ proc xkb_keysym_from_name(name: cstring, flags: cint): uint32 {.
   importc, cdecl, header: "<xkbcommon/xkbcommon.h>".}
 
 ## A table of key modifier names to their respective River modifier masks.
-## River has no equivalent of caps lock/mod2 (num lock); those are ignored
-## (mapped to no modifier) since River matches bindings regardless of locks.
+## River has no equivalent of caps lock/mod2 (num lock): they are not
+## accepted, since a binding would silently lose its modifier.
 const ModifierTable* = {
   "control": RIVER_SEAT_V1_MODIFIERS_CTRL,
   "shift": RIVER_SEAT_V1_MODIFIERS_SHIFT,
   "alt": RIVER_SEAT_V1_MODIFIERS_MOD1,
   "super": RIVER_SEAT_V1_MODIFIERS_MOD4,
-  "caps lock": RIVER_SEAT_V1_MODIFIERS_NONE,
   "mod1": RIVER_SEAT_V1_MODIFIERS_MOD1,
-  "mod2": RIVER_SEAT_V1_MODIFIERS_NONE,
   "mod3": RIVER_SEAT_V1_MODIFIERS_MOD3,
   "mod4": RIVER_SEAT_V1_MODIFIERS_MOD4,
   "mod5": RIVER_SEAT_V1_MODIFIERS_MOD5,

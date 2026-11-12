@@ -38,6 +38,8 @@ proc sd_bus_get_fd*(bus: SdBus): cint {.importc, cdecl.}
 proc sd_bus_get_events*(bus: SdBus): cint {.importc, cdecl.}
 proc sd_bus_get_timeout*(bus: SdBus, usec: ptr uint64): cint {.importc, cdecl.}
 proc sd_bus_process*(bus: SdBus, ret: ptr SdBusMessage): cint {.importc, cdecl.}
+proc sd_bus_service_name_is_valid*(p: cstring): cint {.importc, cdecl.}
+proc sd_bus_object_path_is_valid*(p: cstring): cint {.importc, cdecl.}
 proc sd_bus_get_unique_name*(bus: SdBus, unique: ptr cstring): cint {.importc, cdecl.}
 
 # --- slots ---

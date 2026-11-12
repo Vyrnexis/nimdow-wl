@@ -20,3 +20,5 @@ describe "Key names":
   it "has the modifier names in lower case":
     assert ModifierTable.hasKey("super")
     assert not ModifierTable.hasKey("Super")
+    assert not ModifierTable.hasKey("caps lock")
+    assert not ModifierTable.hasKey("mod2")

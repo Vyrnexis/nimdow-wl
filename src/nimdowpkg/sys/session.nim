@@ -58,14 +58,14 @@ proc startSession*() =
 
   # Portals started before the environment was exported (e.g. activated by
   # an early D-Bus call) cannot open the display: restart them if they run.
-  discard run("systemctl", ["--user", "try-restart",
+  discard run("systemctl", ["--user", "--no-block", "try-restart",
     "xdg-desktop-portal-gtk.service", "xdg-desktop-portal.service"])
 
-  started = run("systemctl", ["--user", "start", sessionTarget])
+  started = run("systemctl", ["--user", "--no-block", "start", sessionTarget])
   if not started:
     log "could not start " & sessionTarget & " (XDG autostart disabled)", lvlWarn
 
 proc stopSession*() =
   if started:
     started = false
-    discard run("systemctl", ["--user", "stop", sessionTarget])
+    discard run("systemctl", ["--user", "--no-block", "stop", sessionTarget])

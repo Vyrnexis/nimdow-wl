@@ -48,6 +48,7 @@ const
   ## Retries of a failed first GetAll, and the wait between them.
   FetchRetries = 2
   RetryMs = 500
+  MaxItems = 64
 
 type
   ItemStatus* = enum
@@ -119,6 +120,8 @@ type
     ## Incremented whenever something visible changed.
     version*: int
     onChange*: proc() {.closure.}
+    ## Called with the bus fd right before it is closed (to unregister it).
+    onClose*: proc(fd: int) {.closure.}
     uniqueName: string
     hostName: string
     nextUid, nextRequest, nextMenuGen: int
@@ -296,7 +299,8 @@ proc fetchMenuLayout(t: Tray) =
   if not callGetLayout(t.bus, menu.service, menu.path, onReply, req):
     t.requests.del cast[int](req)
 
-proc fetchItem(t: Tray, item: TrayItem, ifaceIndex: int) =
+proc fetchItem(t: Tray, item: TrayItem, ifaceIndex: int): bool {.discardable.} =
+  ## False when the call could not be sent.
   let iface =
     if ifaceIndex == 0 and item.iface.len > 0: item.iface
     else: ItemInterfaces[ifaceIndex]
@@ -307,9 +311,13 @@ proc fetchItem(t: Tray, item: TrayItem, ifaceIndex: int) =
       "GetAll", onReply, req, "s", iface.cstring) < 0:
     t.requests.del cast[int](req)
     item.fetching = false
+    return false
+  true
 
 proc addItem(t: Tray, service, path: string) =
-  if service.len == 0 or t.bus == nil:
+  if service.len == 0 or t.bus == nil or t.items.len >= MaxItems or
+      sd_bus_service_name_is_valid(service.cstring) == 0 or
+      sd_bus_object_path_is_valid(path.cstring) == 0:
     return
   if t.findBySpec(service, path) != nil:
     return
@@ -319,10 +327,11 @@ proc addItem(t: Tray, service, path: string) =
     owner: if service[0] == ':': service else: "",
     status: isActive
   )
+  if not t.fetchItem(item, 0):
+    return
   t.items.add item
   t.emitWatcher("StatusNotifierItemRegistered", item.itemSpec)
   t.emitProperty("RegisteredStatusNotifierItems")
-  t.fetchItem(item, 0)
 
 proc addSpec(t: Tray, spec, sender: string) =
   ## A registered item: "service/path", a bare service, or a path (the
@@ -548,7 +557,8 @@ proc onReply(m: SdBusMessage, userdata: pointer, err: ptr SdBusError): cint {.cd
       if not failed and parseItemProps(m, fresh):
         item.fetching = false
         item.attempts = 0
-        item.iface = ItemInterfaces[req.ifaceIndex]
+        if item.iface.len == 0:
+          item.iface = ItemInterfaces[req.ifaceIndex]
         let sender = toStr(sd_bus_message_get_sender(m))
         if sender.len > 0:
           item.owner = sender
@@ -684,6 +694,12 @@ proc onNameOwnerChanged(m: SdBusMessage, userdata: pointer,
     if sd_bus_message_read(m, "sss", addr name, addr oldOwner, addr newOwner) < 0:
       return 0
     let (n, o, w) = ($name, $oldOwner, $newOwner)
+    if o.len > 0 and w.len > 0 and n.len > 0 and n[0] != ':':
+      # A well-known name changed hands: the item is the new owner's now.
+      for item in t.items:
+        if item.service == n:
+          item.owner = w
+          item.scheduleRefetch()
     if n == WatcherName and o.len > 0:
       # The previous owner is gone (maybe replaced directly by another one).
       t.followingWatcher = false
@@ -771,6 +787,8 @@ proc shutdown(t: Tray) =
       discard sd_bus_slot_unref(slot)
     t.menu = nil
   if t.bus != nil:
+    if t.onClose != nil:
+      t.onClose(t.fd())
     sd_bus_close(t.bus)
     sd_bus_unref(t.bus)
     t.bus = nil

@@ -17,6 +17,8 @@ const
   ## Pixmaps larger than this (per side) are ignored, and at most this many are kept.
   MaxPixmapSize* = 512
   MaxPixmaps* = 8
+  ## PNG files (from paths given by apps) wider or higher than this are not loaded.
+  MaxPngSize = 1024
   ## How long a failed lookup is remembered (icons can be installed later).
   MissTtl = initDuration(seconds = 30)
 
@@ -40,6 +42,8 @@ type
 
 var
   themeName = ""
+  ## Incremented whenever the theme is set (caches of rendered icons are stale then).
+  iconThemeGen* = 0
   themes: Table[string, Theme]
   lookupCache: Table[string, string]
   ## Failed lookups (without an item theme path) and when they expire.
@@ -76,6 +80,7 @@ proc iniValue(path, key: string): string =
 proc setIconTheme*(configured: string) =
   ## Picks the user's icon theme: the configured name, else the GTK settings,
   ## else Adwaita (when installed), else hicolor.
+  inc iconThemeGen
   themeName = configured
   if themeName.len == 0:
     let home = getHomeDir()
@@ -284,6 +289,22 @@ proc scaleInto(src: CairoSurface, px: int): CairoSurface =
   cairo_paint(cr)
   cairo_destroy(cr)
 
+proc pngTooLarge*(path: string): bool =
+  ## Reads the IHDR (the width and height, big endian, at offset 16) to refuse
+  ## huge images before cairo decodes them. Not a PNG: also refused.
+  var f: File
+  if not open(f, path):
+    return true
+  defer: close(f)
+  var h: array[24, byte]
+  if f.readBytes(h, 0, 24) < 24 or h[1] != 'P'.byte or h[2] != 'N'.byte or h[3] != 'G'.byte:
+    return true
+  for i in [16, 20]:
+    let v = (h[i].uint32 shl 24) or (h[i + 1].uint32 shl 16) or (h[i + 2].uint32 shl 8) or
+      h[i + 3].uint32
+    if v == 0 or v > MaxPngSize:
+      return true
+
 proc renderFile*(path: string, px: int): CairoSurface =
   ## Loads a PNG or SVG file as a px*px ARGB32 surface (nil on failure).
   if px <= 0:
@@ -301,7 +322,7 @@ proc renderFile*(path: string, px: int): CairoSurface =
         result = nil
       cairo_destroy(cr)
     g_object_unref(handle)
-  elif path.toLowerAscii().endsWith(".png"):
+  elif path.toLowerAscii().endsWith(".png") and not pngTooLarge(path):
     let src = cairo_image_surface_create_from_png(path.cstring)
     if src == nil:
       return nil

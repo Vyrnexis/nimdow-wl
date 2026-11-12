@@ -295,17 +295,12 @@ proc toggleTagsForClient*(
       client.tagIDs.incl(id)
 
   # Ensure the client is assigned at least one tag.
-  if client.tagIDs.len == 0:
+  if client.tagIDs.len == 0 and firstTagToggledOff != 0:
     client.tagIDs.incl(firstTagToggledOff.TagID)
 
   # Perform the layout if the client was added to or removed from the current tags.
   if wasOnCurrTags != client.tagIDs.anyIt(this.selectedTags.contains(it)):
     this.doLayout()
-
-proc toggleSelectedTagsForClient*(this: Monitor, client: Client) =
-  let selectedTags: OrderedSet[TagID] = this.selectedTags
-  let tagIDs = toSeq(selectedTags.items)
-  this.toggleTagsForClient(client, tagIDs)
 
 proc addClient*(this: Monitor, client: Client, assignToSelectedTags: bool = true) =
   this.sentStack.setLen 0
@@ -314,7 +309,14 @@ proc addClient*(this: Monitor, client: Client, assignToSelectedTags: bool = true
   this.clientSelection.add(client)
   if assignToSelectedTags:
     client.tagIDs.clear()
-    this.toggleSelectedTagsForClient(client)
+    for id in this.selectedTags:
+      client.tagIDs.incl(id)
+    # Nothing viewed: fall back to the previous tag, else the first.
+    if client.tagIDs.len == 0:
+      client.tagIDs.incl(
+        if this.previousTagID != 0: this.previousTagID
+        else: this.taggedClients.tags[0].id
+      )
   this.doLayout()
 
 proc rotateClients*(this: Monitor) =
@@ -342,14 +344,18 @@ proc moveSelectedWindowToTag*(this: Monitor, tagID: TagID) =
     this.moveClientToTag(client, tagID)
 
 proc toggleTags*(this: Monitor, tagIDs: varargs[TagID]) =
-  ## Views the given tags.
+  ## Toggles the given tags in the view. Never leaves the view empty (as dwm).
 
+  var tags = this.selectedTags
   for id in tagIDs:
-    if this.selectedTags.contains(id):
-      this.selectedTags.excl(id)
+    if tags.contains(id):
+      tags.excl(id)
     else:
-      this.selectedTags.incl(id)
+      tags.incl(id)
 
+  if tags.len == 0:
+    return
+  this.selectedTags = tags
   this.doLayout()
 
 proc setSelectedTags*(this: Monitor, tagIDs: varargs[TagID]) =

@@ -54,6 +54,8 @@ type
     repeatSent: Option[tuple[rate, delay: int]]
     xkb: RiverXkbKeyboardV1
     keymapSet: bool
+    ## Settings were sent once; later `done` events do not resend them.
+    xkbApplied, liApplied: bool
     layout: string
     numlock: int = -1
     li: RiverLibinputDeviceV1
@@ -87,10 +89,12 @@ proc applyRepeat(dev: Device) =
       (k.repeatRate.isNone and k.repeatDelay.isNone):
     return
   let sent = (rate: k.repeatRate.get(DefaultRepeatRate), delay: k.repeatDelay.get(DefaultRepeatDelay))
+  if dev.repeatSent == some(sent):
+    return
   river_input_device_v1_set_repeat_info(dev.obj, sent.rate.int32, sent.delay.int32)
   dev.repeatSent = some(sent)
 
-proc applyXkb(dev: Device, sendKeymap = true) =
+proc applyXkb(dev: Device, sendKeymap = true, sendNumlock = true) =
   if dev.xkb.isNil:
     return
   if sendKeymap and keymapWanted():
@@ -102,7 +106,8 @@ proc applyXkb(dev: Device, sendKeymap = true) =
       dev.keymapSet = true
     else:
       discard # Failed: River's keymap stays.
-  if settings.keyboard.numlock.isSome:
+  dev.xkbApplied = true
+  if sendNumlock and settings.keyboard.numlock.isSome:
     if settings.keyboard.numlock.get:
       river_xkb_keyboard_v1_numlock_enable(dev.xkb)
     else:
@@ -130,6 +135,7 @@ proc applyLibinput(dev: Device) =
     li = dev.li
     p = dev.lp
     s = if p.tapFingers > 0: settings.touchpad else: settings.mouse
+  dev.liApplied = true
   if s.tap.isSome and p.tapFingers > 0:
     track river_libinput_device_v1_set_tap(li, s.tap.get.uint32)
   if s.naturalScroll.isSome and p.natural != 0:
@@ -263,7 +269,10 @@ proc deviceName(data: pointer, obj: RiverInputDeviceV1, name: cstring) {.cdecl.}
   cast[Device](data).name = $name
 
 proc deviceDone(data: pointer, obj: RiverInputDeviceV1) {.cdecl.} =
-  cast[Device](data).applyRepeat()
+  let dev = cast[Device](data)
+  dev.applyRepeat()
+  if not dev.liApplied:
+    dev.applyLibinput() # Its done came before the device type.
 
 var deviceListener = river_input_device_v1_noop_listener()
 deviceListener.removed = deviceRemoved
@@ -318,7 +327,7 @@ proc xkbNumlockOff(data: pointer, obj: RiverXkbKeyboardV1) {.cdecl.} =
 
 proc xkbDone(data: pointer, obj: RiverXkbKeyboardV1) {.cdecl.} =
   let dev = xkbDev(obj)
-  if dev != nil: dev.applyXkb()
+  if dev != nil and not dev.xkbApplied: dev.applyXkb()
 
 var xkbKeyboardListener = river_xkb_keyboard_v1_noop_listener()
 xkbKeyboardListener.removed = xkbRemoved
@@ -353,7 +362,7 @@ proc liInputDevice(
 
 proc liDone(data: pointer, obj: RiverLibinputDeviceV1) {.cdecl.} =
   let dev = cast[Device](river_libinput_device_v1_get_user_data(obj))
-  if dev != nil: dev.applyLibinput()
+  if dev != nil and not dev.liApplied: dev.applyLibinput()
 
 template liEvent(name: untyped, T: typedesc, field: untyped) =
   ## Stores the value of a support/current event in the device's `lp.field`.
@@ -457,12 +466,14 @@ proc applyInput*(input: InputSettings) =
     # Resending an unchanged keymap would reset the active layout, so only on change.
     keymapChanged = old.layout != new.layout or old.variant != new.variant or
       old.options != new.options or old.model != new.model
+    # A new keymap resets the numlock, so it is resent then too.
+    numlockWanted = keymapChanged or old.numlock != new.numlock
   settings = input
   if keymapChanged:
     newKeymap()
   for dev in devices:
     dev.applyRepeat()
-    dev.applyXkb(sendKeymap = keymapChanged)
+    dev.applyXkb(sendKeymap = keymapChanged, sendNumlock = numlockWanted)
     dev.applyLibinput()
 
 proc dumpJson*(): JsonNode =

@@ -2,7 +2,7 @@ import
   parsetoml,
   strutils
 
-import ../wm/tags
+import ../wm/tags, ../sys/logger
 
 const tableName = "appRule"
 const globChar = '*'
@@ -29,7 +29,7 @@ proc newAppRule*(): AppRule =
     title: "",
     class: "",
     instance: "",
-    monitorID: 1,
+    monitorID: -1,
     tagIDs: @[],
     state: wsNormal,
     x: -1,
@@ -100,23 +100,30 @@ proc parseAppRules*(table: TomlTable): seq[AppRule] =
   if appRuleTables.kind != TomlValueKind.Array:
     raise newException(Exception, "appRule must be an array of tables!")
 
-  for appRuleTableToml in appRuleTables.arrayVal:
-    if appRuleTableToml.kind != TomlValueKind.Table:
-      raise newException(Exception, "appRule must be a table!")
+  for index, appRuleTableToml in appRuleTables.arrayVal:
+    # A bad rule is skipped, the others stay.
+    try:
+      if appRuleTableToml.kind != TomlValueKind.Table:
+        raise newException(Exception, "appRule must be a table!")
 
-    let appRuleTable = appRuleTableToml.tableVal
-    let appRule = newAppRule()
-    appRule.title = appRuleTable.getStringProperty("title")
-    appRule.class = appRuleTable.getStringProperty("class")
-    appRule.instance = appRuleTable.getStringProperty("instance")
-    appRule.monitorID = appRuleTable.getMonitorID()
-    appRule.tagIDs = appRuleTable.getTagIDs()
-    appRule.state = parseEnum[WindowState](appRuleTable.getStringProperty("state").toLower(), wsNormal)
-    appRule.x = appRuleTable.getIntProperty("x", -1)
-    appRule.y = appRuleTable.getIntProperty("y", -1)
-    appRule.width = appRuleTable.getIntProperty("width")
-    appRule.height = appRuleTable.getIntProperty("height")
-    result.add(appRule)
+      let appRuleTable = appRuleTableToml.tableVal
+      let appRule = newAppRule()
+      appRule.title = appRuleTable.getStringProperty("title")
+      appRule.class = appRuleTable.getStringProperty("class")
+      appRule.instance = appRuleTable.getStringProperty("instance")
+      appRule.monitorID = appRuleTable.getMonitorID()
+      appRule.tagIDs = appRuleTable.getTagIDs()
+      let state = appRuleTable.getStringProperty("state").toLower()
+      appRule.state = parseEnum[WindowState](state, wsNormal)
+      if state.len > 0 and $appRule.state != state:
+        log "appRule " & $(index + 1) & ": unknown state \"" & state & "\", using normal", lvlWarn
+      appRule.x = appRuleTable.getIntProperty("x", -1)
+      appRule.y = appRuleTable.getIntProperty("y", -1)
+      appRule.width = appRuleTable.getIntProperty("width")
+      appRule.height = appRuleTable.getIntProperty("height")
+      result.add(appRule)
+    except Exception:
+      log "appRule " & $(index + 1) & ": " & getCurrentExceptionMsg(), lvlError
 
 proc globMatches*(str, sub: string): bool =
   if sub.len == 0 or str == sub:

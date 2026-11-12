@@ -112,7 +112,7 @@ describe "App rules":
     let rules: seq[AppRule] = parseAppRules(toml.tableVal[])
     assert rules.len == 0
 
-  it "raises an exception if a rule has an invalid title":
+  it "skips a rule with an invalid title":
     let testToml: string = """
     [[appRule]]
     title = 9009
@@ -123,10 +123,9 @@ describe "App rules":
     """
 
     let toml = parseString(testToml)
-    assertRaises(Exception, "title must be a string!"):
-      discard parseAppRules(toml.tableVal[])
+    assert parseAppRules(toml.tableVal[]).len == 0
 
-  it "raises an exception if a rule has an invalid class":
+  it "skips a rule with an invalid class":
     let testToml: string = """
     [[appRule]]
     class = 123
@@ -136,10 +135,9 @@ describe "App rules":
     """
 
     let toml = parseString(testToml)
-    assertRaises(Exception, "class must be a string!"):
-      discard parseAppRules(toml.tableVal[])
+    assert parseAppRules(toml.tableVal[]).len == 0
 
-  it "raises an exception if a rule has an invalid instance":
+  it "skips a rule with an invalid instance":
     let testToml: string = """
     [[appRule]]
     class = "Element"
@@ -149,10 +147,9 @@ describe "App rules":
     """
 
     let toml = parseString(testToml)
-    assertRaises(Exception, "instance must be a string!"):
-      discard parseAppRules(toml.tableVal[])
+    assert parseAppRules(toml.tableVal[]).len == 0
 
-  it "raises an exception if a rule has an invalid monitor":
+  it "skips a rule with an invalid monitor":
     let testToml: string = """
     [[appRule]]
     class = "Element"
@@ -162,10 +159,9 @@ describe "App rules":
     """
 
     let toml = parseString(testToml)
-    assertRaises(Exception, "monitor must be an integer!"):
-      discard parseAppRules(toml.tableVal[])
+    assert parseAppRules(toml.tableVal[]).len == 0
 
-  it "raises an exception if a rule has an invalid tags array":
+  it "skips a rule with an invalid tags array":
     let testToml: string = """
     [[appRule]]
     class = "Element"
@@ -175,8 +171,29 @@ describe "App rules":
     """
 
     let toml = parseString(testToml)
-    assertRaises(Exception, "tags must be an array!"):
-      discard parseAppRules(toml.tableVal[])
+    assert parseAppRules(toml.tableVal[]).len == 0
+
+  it "skips only the bad rules":
+    let testToml: string = """
+    [[appRule]]
+    class = "a"
+    monitor = 0
+
+    [[appRule]]
+    class = "b"
+    tags = 12
+
+    [[appRule]]
+    class = "c"
+    state = "bogus"
+    """
+
+    let toml = parseString(testToml)
+    let rules = parseAppRules(toml.tableVal[])
+    assert rules.len == 1
+    assert rules[0].class == "c"
+    assert rules[0].state == wsNormal
+    assert rules[0].monitorID == -1
 
   it "globMatches":
     assert globMatches("", "") == true

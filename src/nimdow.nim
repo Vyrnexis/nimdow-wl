@@ -54,9 +54,11 @@ var
 
 proc onQuitSignal(sig: cint) {.noconv.} =
   ## Async-signal-safe: sets a flag and writes a byte to the self-pipe.
+  let savedErrno = errno
   quitRequested = true
   var byte = 1'u8
   discard write(quitPipeWrite, addr byte, 1)
+  errno = savedErrno
 
 proc installQuitHandlers(): cint =
   ## Makes SIGTERM and SIGINT end the event loop (so the exit procs run).
@@ -84,8 +86,6 @@ when isMainModule:
   # Falls back to the built-in default config if the user's file is broken.
   let configTable = loadConfigFile()
 
-  # Reap spawned processes (autostart and key bindings).
-  installChildReaper()
   let quitFd = installQuitHandlers()
 
   var nimdow: WindowManager
@@ -96,13 +96,24 @@ when isMainModule:
 
   addExitProc(proc() =
     discard tryRemoveFile(ipc.socketLoc)
+    # The session helpers are waited for: no reaper then.
+    discard signal(SIGCHLD, SIG_DFL)
     stopSession()
   )
 
   log "Starting nimdow-wl " & version
 
-  # Export the display to systemd/D-Bus and start XDG autostart.
+  # Listen before anything is started, so early clients can already connect.
+  let
+    ipcSocket = ipc.initIPCSocket()
+    ipcSocketFd = ipcSocket.getFd().int
+
+  # Export the display to systemd/D-Bus and start XDG autostart. Runs before
+  # the child reaper is installed: the helpers are waited for.
   startSession()
+
+  # Reap spawned processes (autostart and key bindings).
+  installChildReaper()
 
   nimdow.startTray()
 
@@ -115,8 +126,6 @@ when isMainModule:
     selector = newSelector[int]()
     display = nimdow.display
     displayFd = display.fd().int
-    ipcSocket = ipc.initIPCSocket()
-    ipcSocketFd = ipcSocket.getFd().int
 
   selector.registerHandle(displayFd, {Event.Read}, 0)
   selector.registerHandle(ipcSocketFd, {Event.Read}, 1)
@@ -159,17 +168,18 @@ when isMainModule:
         trayFd = tray.fd()
         selector.registerHandle(trayFd, wanted, 2)
         trayWanted = wanted
+        # The fd must leave the selector before the bus closes it.
+        tray.onClose = proc(fd: int) =
+          if trayFd == fd:
+            try:
+              selector.unregister(fd)
+            except CatchableError:
+              discard
+            trayFd = -1
       elif wanted != trayWanted:
         selector.updateHandle(trayFd, wanted)
         trayWanted = wanted
       timeout = tray.timeoutMs()
-    elif trayFd >= 0:
-      try:
-        selector.unregister(trayFd)
-      except CatchableError:
-        # The connection (and its fd) is already closed.
-        discard
-      trayFd = -1
 
     let menuTimeout = nimdow.timerTimeoutMs()
     if menuTimeout >= 0 and (timeout < 0 or menuTimeout < timeout):

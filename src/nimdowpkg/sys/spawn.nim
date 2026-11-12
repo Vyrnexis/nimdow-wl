@@ -3,9 +3,11 @@ import posix
 ## Starting external programs (key bindings, autostart).
 
 proc reapChildren(sig: cint) {.noconv.} =
+  let savedErrno = errno
   var status: cint
   while waitpid(-1.Pid, status, WNOHANG) > 0:
     discard
+  errno = savedErrno
 
 proc installChildReaper*() =
   ## Reaps finished children. A handler (rather than SIG_IGN) is used because

@@ -1,5 +1,6 @@
 import
   nimtest,
+  os,
   tray/icons
 
 proc pixmap(size: int, valid = true): IconPixmap =
@@ -22,3 +23,26 @@ describe "Tray pixmap choice":
 
   it "skips oversized pixmaps":
     assert choosePixmap(@[pixmap(MaxPixmapSize + 1), pixmap(16)], 22) == 1
+
+describe "PNG size limit":
+
+  proc header(w, h: uint32): string =
+    proc be(v: uint32): string =
+      for s in [24, 16, 8, 0]:
+        result.add char((v shr s) and 0xff)
+    "\x89PNG\r\n\x1a\n" & be(13) & "IHDR" & be(w) & be(h)
+
+  it "reads the size from the IHDR":
+    let dir = getTempDir()
+    let path = dir / "nimdow-icons-test.png"
+    defer: removeFile(path)
+    writeFile(path, header(64, 64))
+    assert not pngTooLarge(path)
+    writeFile(path, header(1024, 1024))
+    assert not pngTooLarge(path)
+    writeFile(path, header(1025, 16))
+    assert pngTooLarge(path)
+    writeFile(path, header(16, 100000))
+    assert pngTooLarge(path)
+    writeFile(path, "not a png at all, just text")
+    assert pngTooLarge(path)

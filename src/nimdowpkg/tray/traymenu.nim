@@ -273,7 +273,10 @@ proc place(popup: MenuPopup, parent: MenuPopup) =
 # Drawing
 # ---------------------------------------------------------------------------
 
-var iconCache: Table[(string, int), CairoSurface]
+var
+  iconCache: Table[(string, int), CairoSurface]
+  ## The icon theme `iconCache` was filled for.
+  iconCacheGen = -1
 
 const maxCachedIcons = 128
 
@@ -281,6 +284,12 @@ proc iconFor(name: string, px: int): CairoSurface =
   ## The icon rendered at `px` pixels (cached by name and size, shared by all
   ## popups; nil: none). Valid until the next call (the cache may be emptied).
   let key = (name, px)
+  if iconCacheGen != iconThemeGen:
+    iconCacheGen = iconThemeGen
+    for surface in iconCache.values:
+      if surface != nil:
+        cairo_surface_destroy(surface)
+    iconCache.clear()
   if key in iconCache:
     return iconCache[key]
   if iconCache.len >= maxCachedIcons:

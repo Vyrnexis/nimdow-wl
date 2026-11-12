@@ -256,6 +256,7 @@ proc reloadConfig*(this: WindowManager) =
     # The old config stays active if the new one fails to load.
     logger.enabled = oldLoggingEnabled
     log getCurrentExceptionMsg(), lvlError
+    return
 
   for monitor in this.monitors.mvalues():
     monitor.setConfig(this.config)

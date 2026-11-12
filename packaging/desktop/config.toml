@@ -120,7 +120,7 @@ exec = [
   borderColorFocused = "#b8bb26"
   # Bar settings
   barHeight = 30
-  # System tray (StatusNotifierItem, see README). Icon size is barHeight - 2 * trayIconPadding.
+  # System tray (StatusNotifierItem, see doc/status-bar.md). Icon size is barHeight - 2 * trayIconPadding.
   trayEnabled = true
   trayMonitor = 1 # 1 = the first monitor's bar, 2 = the second, ...; 0 = follow the selected monitor
   trayIconPadding = 4

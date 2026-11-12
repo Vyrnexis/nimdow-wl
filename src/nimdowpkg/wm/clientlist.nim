@@ -2,7 +2,6 @@ import
   lists,
   listutils,
   sets,
-  sequtils,
   sugar
 
 import
@@ -36,16 +35,22 @@ proc newTag*(id: TagID, layout: MasterStackLayout): Tag =
 
 proc newTaggedClients*(): TaggedClients = TaggedClients()
 
-iterator currClientsIter*(this: TaggedClients): ClientNode {.inline, closure.} =
+proc isOnSelectedTags*(this: TaggedClients, client: Client): bool =
+  ## If the client has one of the selected tags.
+  for id in client.tagIDs:
+    if id in this.selectedTags:
+      return true
+
+iterator currClientsIter*(this: TaggedClients): ClientNode {.inline.} =
   ## Iterates over clients in stack order.
   for node in this.clients.nodes:
-    if node.value.tagIDs.anyIt(this.selectedTags.contains(it)):
+    if this.isOnSelectedTags(node.value):
       yield node
 
-iterator currClientsReverseIter*(this: TaggedClients): ClientNode {.inline, closure.} =
+iterator currClientsReverseIter*(this: TaggedClients): ClientNode {.inline.} =
   ## Iterates over clients in reverse stack order.
   for node in this.clients.reverseNodes:
-    if node.value.tagIDs.anyIt(this.selectedTags.contains(it)):
+    if this.isOnSelectedTags(node.value):
       yield node
 
 proc findNodeByWindow*(this: TaggedClients, window: Window): ClientNode =
@@ -97,36 +102,32 @@ proc findNextCurrClient*(
     if accept(node.value):
       return node
 
-iterator currClientsSelectionNewToOldIter*(this: TaggedClients): Client {.inline, closure.} =
+iterator currClientsSelectionNewToOldIter*(this: TaggedClients): Client {.inline.} =
   ## Iterates over clients in order of selection,
   ## from most recent to least recent.
   for i in countdown(this.clientSelection.high, this.clientSelection.low):
     let client = this.clientSelection[i]
-    if client.tagIDs.anyIt(this.selectedTags.contains(it)):
+    if this.isOnSelectedTags(client):
       yield client
 
 proc findCurrentClients*(this: TaggedClients): seq[Client] =
   for node in this.currClientsIter:
     result.add(node.value)
 
-proc currClientNode*(this: TaggedClients): ClientNode =
-  ## Gets the most recently selected client (as a node) in the list
-  ## of clients that are available in the selectedTags.
-  var currClient: Client
-  for client in this.currClientsSelectionNewToOldIter:
-      currClient = client
-      break
-
-  if currClient == nil:
-    return nil
-
-  return this.findNodeByWindow(currClient.window)
-
 proc currClient*(this: TaggedClients): Client =
   ## Gets the most recently selected client in the list
   ## of clients that are available in the selectedTags.
-  for client in this.currClientsSelectionNewToOldIter:
-    return client
+  for i in countdown(this.clientSelection.high, 0):
+    let client = this.clientSelection[i]
+    if this.isOnSelectedTags(client):
+      return client
+
+proc currClientNode*(this: TaggedClients): ClientNode =
+  ## Gets the most recently selected client (as a node) in the list
+  ## of clients that are available in the selectedTags.
+  let currClient = this.currClient
+  if currClient != nil:
+    return this.findNodeByWindow(currClient.window)
 
 template withSomeCurrClient*(this: TaggedClients, client, body: untyped) =
   ## Executes `body` if `this.currClient != nil`

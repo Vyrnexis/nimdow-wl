@@ -51,6 +51,17 @@ var
   ## Theme directories sorted by distance to a size, per "theme|px".
   sortedDirs: Table[string, seq[ThemeDir]]
   bases: seq[string]
+  pixmapDirs: seq[string]
+
+proc iconPixmapDirs(): seq[string] =
+  ## The flat icon directories searched last.
+  if pixmapDirs.len > 0:
+    return pixmapDirs
+  for dir in getEnv("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(':') &
+      @["/usr/share"]:
+    if dir.len > 0 and dir / "pixmaps" notin pixmapDirs:
+      pixmapDirs.add dir / "pixmaps"
+  return pixmapDirs
 
 proc iconBaseDirs(): seq[string] =
   if bases.len > 0:
@@ -241,12 +252,10 @@ proc findIconFile*(name, themePath: string, px: int): string =
     if found.len == 0:
       found = lookupOnce(candidate, px, searchBases)
     if found.len == 0:
-      for dir in getEnv("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(':') &
-          @["/usr/share"]:
-        if dir.len > 0:
-          found = findFlat(dir / "pixmaps", candidate)
-          if found.len > 0:
-            break
+      for dir in iconPixmapDirs():
+        found = findFlat(dir, candidate)
+        if found.len > 0:
+          break
     if found.len > 0:
       break
     let dash = candidate.rfind('-')

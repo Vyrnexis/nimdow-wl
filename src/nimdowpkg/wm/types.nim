@@ -156,8 +156,9 @@ proc findClient*(this: WindowManager, window: Window): Client =
     if client.window == window:
       return client
 
-proc sortedMonitors*(this: WindowManager): seq[Monitor] =
-  ## Monitors ordered by position (x, then y).
+proc sortedMonitors*(this: WindowManager): lent seq[Monitor] =
+  ## Monitors ordered by position (x, then y). A view of the cache: do not
+  ## keep it across a change of the monitors.
   if this.sortedDirty:
     this.sortedCache.setLen 0
     for monitor in this.monitors.values():
@@ -168,7 +169,7 @@ proc sortedMonitors*(this: WindowManager): seq[Monitor] =
         result = cmp(a.area.y, b.area.y)
     )
     this.sortedDirty = false
-  return this.sortedCache
+  this.sortedCache
 
 proc monitorOf*(this: WindowManager, client: Client): Monitor =
   ## The monitor holding the client (nil: none).

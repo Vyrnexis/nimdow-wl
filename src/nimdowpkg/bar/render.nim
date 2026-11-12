@@ -2,10 +2,10 @@ import
   std/[unicode, strutils, tables, math, sequtils],
   types,
   fonts,
-  input,
   statusparse,
   ../sys/logger,
   ../config/configloader,
+  ../config/tagsettings,
   ../wl/cairo,
   ../wl/cursor,
   ../wl/shm,
@@ -42,20 +42,33 @@ proc fillRect(this: StatusBar, color: Color, x, y, w, h: int, replace = false) =
   if replace:
     cairo_set_operator(this.cr, CAIRO_OPERATOR_OVER)
 
-proc newLayout(this: StatusBar, text: string, desc: PangoFontDescription,
+proc tagLabels*(tagSettings: TagSettings): seq[string] =
+  ## The texts of the tags, ready to be drawn.
+  for tagSetting in tagSettings.values():
+    result.add sanitize(tagSetting.displayString)
+
+proc setText(this: StatusBar, text: string, desc: PangoFontDescription,
     ellipsizeWidth = -1): PangoLayout =
+  ## Sets up the bar's layout for the text: only valid until the next call.
   ## `ellipsizeWidth` >= 0: the text is ellipsized to that many logical pixels.
-  result = pango_cairo_create_layout(this.cr)
+  result = this.layout
   pango_layout_set_font_description(result, desc)
   pango_layout_set_text(result, text.cstring, text.len.cint)
   if ellipsizeWidth >= 0:
     pango_layout_set_width(result, (ellipsizeWidth * PANGO_SCALE).cint)
     pango_layout_set_ellipsize(result, PANGO_ELLIPSIZE_END)
+  else:
+    pango_layout_set_width(result, -1)
+    pango_layout_set_ellipsize(result, PANGO_ELLIPSIZE_NONE)
+
+proc pixelSize(layout: PangoLayout): tuple[w, h: int] =
+  var w, h: cint
+  pango_layout_get_pixel_size(layout, addr w, addr h)
+  (w.int, h.int)
 
 proc measure(layout: PangoLayout, text: string): TextInfo =
   ## Size of the laid out text and the x offset of each of its characters.
-  var w, h: cint
-  pango_layout_get_pixel_size(layout, addr w, addr h)
+  let (w, h) = layout.pixelSize()
   result.valid = true
   result.width = w
   result.height = h
@@ -95,13 +108,12 @@ proc blockMetricsFor(this: StatusBar, probe: string): BlockMetrics =
   result = BlockMetrics(
     valid: true, probe: probe, height: this.wanted.height, bufH: this.pool.height
   )
-  let layout = this.newLayout(probe, this.fonts.allFonts)
+  let layout = this.setText(probe, this.fonts.allFonts)
   var
     ink, logical: PangoRectangle
     pixelW, logicalH: cint
   pango_layout_get_extents(layout, addr ink, addr logical)
   pango_layout_get_pixel_size(layout, addr pixelW, addr logicalH)
-  g_object_unref(layout)
   if ink.height > 0:
     let
       # Same vertical position as drawLayout uses.
@@ -123,6 +135,7 @@ proc checkMetrics(this: StatusBar) =
   this.metricsGen = this.wanted.configGen
   this.metricsScale = this.wanted.scale120
   this.tagInfos.setLen 0
+  this.titleInfo.valid = false
   this.blockMetrics.valid = false
   for run in this.parsed.runs.mitems:
     run.info.valid = false
@@ -138,16 +151,13 @@ proc renderStringRightAligned(
   ## Nothing is drawn (or clickable) left of `minX`: a status that is too wide
   ## loses its start. Returns the x position where the string starts.
 
-  # Lay out each run once; the same layouts are drawn below.
-  var
-    layouts = newSeq[PangoLayout](this.parsed.runs.len)
-    stringWidth = 0
-  for i, run in this.parsed.runs.mpairs:
+  # Measure the runs not measured yet (the layout is set up again to draw).
+  var stringWidth = 0
+  for run in this.parsed.runs.mitems:
     if run.isSeparator:
       continue
-    layouts[i] = this.newLayout(run.text, this.fontFor(run.font))
     if not run.info.valid:
-      run.info = measure(layouts[i], run.text)
+      run.info = measure(this.setText(run.text, this.fontFor(run.font)), run.text)
     stringWidth += run.info.width
 
   # Colored backgrounds are drawn as a block lined up with the glyphs used
@@ -195,10 +205,9 @@ proc renderStringRightAligned(
         cairo_fill(this.cr)
         cairo_set_operator(this.cr, CAIRO_OPERATOR_OVER)
     this.drawLayout(
-      layouts[i], run.info.height, xLoc,
+      this.setText(run.text, this.fontFor(run.font)), run.info.height, xLoc,
       if run.fg == -1: defaultColor else: toColor(run.fg)
     )
-    g_object_unref(layouts[i])
     for k in 0 ..< run.count:
       let
         cellStart = xLoc + run.info.characters[k]
@@ -241,7 +250,7 @@ proc renderTags(this: StatusBar): int =
     pad = this.settings.tagPadding.int
     textXPos: int = pad
     i = 0
-  for tagID, tagSetting in this.tagSettings.pairs():
+  for text in this.tagLabels:
     let state =
       if i < this.wanted.tags.len: this.wanted.tags[i]
       else: BarTag(empty: true)
@@ -253,8 +262,7 @@ proc renderTags(this: StatusBar): int =
     elif not state.empty:
       fgColor = toColor(this.settings.hasWindowsColor)
 
-    let text = sanitize(tagSetting.displayString)
-    let layout = this.newLayout(text, this.fonts.allFonts)
+    let layout = this.setText(text, this.fonts.allFonts)
     if this.tagInfos.len < i:
       this.tagInfos.setLen i
     if not this.tagInfos[i - 1].valid:
@@ -273,7 +281,6 @@ proc renderTags(this: StatusBar): int =
           this.fillRect(if state.urgent: urgent else: bg, boxXLoc + 1, 1, 2, 2, true)
 
     this.drawLayout(layout, info.height, textXPos, fgColor)
-    g_object_unref(layout)
     this.clickables.add (
       start: textXPos - pad,
       stop: textXPos + info.width + pad,
@@ -295,14 +302,14 @@ proc renderTray(this: StatusBar): int =
     padding = max(0, this.settings.trayIconPadding.int)
     spacing = max(0, this.settings.trayIconSpacing.int)
     size = max(1, this.wanted.height - 2 * padding)
-    pixels = max(1, (size * this.scale120 + 60) div 120)
+    pixels = max(1, (size * this.wanted.scale120 + 60) div 120)
   if items.len == 0:
     return
   var x = this.wanted.width - rightPadding - (items.len * size + (items.len - 1) * spacing)
   result = x - spacing
   let y = (this.wanted.height - size) div 2
   for item in items:
-    let (surface, real, desc) = item.iconSurface(pixels)
+    let (surface, real) = item.iconSurface(pixels)
     if surface != nil:
       cairo_save(this.cr)
       cairo_translate(this.cr, x.cdouble, y.cdouble)
@@ -318,15 +325,14 @@ proc renderTray(this: StatusBar): int =
       this.fillRect((fg.r, fg.g, fg.b, 0.35), x, y, size, size)
       if label.len > 0:
         let letter = sanitize($label.runeAt(0)).toUpper()
-        let layout = this.newLayout(letter, this.fonts.allFonts)
-        var w, h: cint
-        pango_layout_get_pixel_size(layout, addr w, addr h)
+        let
+          layout = this.setText(letter, this.fonts.allFonts)
+          (w, h) = layout.pixelSize()
         cairo_set_source_rgba(this.cr, fg.r, fg.g, fg.b, fg.a)
         cairo_move_to(this.cr, (x + (size - w) div 2).cdouble, (y + (size - h) div 2).cdouble)
         pango_cairo_show_layout(this.cr, layout)
-        g_object_unref(layout)
     this.trayRegions.add TrayRegion(
-      uid: item.uid, id: item.id, status: item.status, hasIcon: real, icon: desc, x: x, width: size
+      uid: item.uid, id: item.id, status: item.status, hasIcon: real, x: x, width: size
     )
     x += size + spacing
 
@@ -344,13 +350,23 @@ proc renderStatus(this: StatusBar, rightEdge, minX: int): int =
       toColor(this.settings.fgColor), rightEdge, minX, padding
     )
 
-proc renderActiveWindowTitle(this: StatusBar, minRenderX, maxRenderX: int) =
-  ## Draws the title between the tags and the status, ellipsized to fit.
+proc titleInfoFor(this: StatusBar, layout: PangoLayout, title: string, width: int): TextInfo =
+  ## The measurement of the laid out title, kept while neither the title nor
+  ## the width it is ellipsized to change.
+  if not (this.titleInfo.valid and this.titleWidth == width and this.titleText == title):
+    this.titleInfo = measure(layout, title)
+    this.titleText = title
+    this.titleWidth = width
+  this.titleInfo
+
+proc renderActiveWindowTitle(this: StatusBar, region, minRenderX, maxRenderX: int) =
+  ## Draws the title between the tags and the status, ellipsized to fit. Its
+  ## click region goes to the slot `region`, reserved to keep the order.
   let title = sanitize(this.wanted.title)
   let available = maxRenderX - minRenderX
   if title.len <= 0 or available <= 0:
-    # Add dummy clickable region so indexes stay consistent
-    this.clickables.add (start: minRenderX, stop: minRenderX, characters: @[])
+    # Dummy clickable region so indexes stay consistent
+    this.clickables[region] = (start: minRenderX, stop: minRenderX, characters: @[])
     return
 
   let
@@ -362,27 +378,27 @@ proc renderActiveWindowTitle(this: StatusBar, minRenderX, maxRenderX: int) =
   case this.settings.windowTitlePosition
   of wtpLeft:
     let
-      layout = this.newLayout(title, desc, available)
-      info = measure(layout, title)
+      layout = this.setText(title, desc, available)
+      info = this.titleInfoFor(layout, title, available)
     this.drawLayout(layout, info.height, minRenderX, textColor)
-    g_object_unref(layout)
-    this.clickables.add (
+    this.clickables[region] = (
       start: minRenderX, stop: minRenderX + info.width, characters: info.characters
     )
   of wtpCenter:
-    let layout = this.newLayout(title, desc)
-    var info = measure(layout, title)
-    var pos = max(minRenderX, this.wanted.width div 2 - info.width div 2)
-    if pos + info.width > maxRenderX:
+    let layout = this.setText(title, desc)
+    # Unconstrained size first; only the final text is measured per character.
+    let fullWidth = layout.pixelSize().w
+    var pos = max(minRenderX, this.wanted.width div 2 - fullWidth div 2)
+    if pos + fullWidth > maxRenderX:
       # Does not fit centered: shift left, then clip.
-      pos = max(minRenderX, maxRenderX - info.width)
-    if info.width > maxRenderX - pos:
-      pango_layout_set_width(layout, ((maxRenderX - pos) * PANGO_SCALE).cint)
-      pango_layout_set_ellipsize(layout, PANGO_ELLIPSIZE_END)
-      info = measure(layout, title)
+      pos = max(minRenderX, maxRenderX - fullWidth)
+    var width = -1
+    if fullWidth > maxRenderX - pos:
+      width = maxRenderX - pos
+      discard this.setText(title, desc, width)
+    let info = this.titleInfoFor(layout, title, width)
     this.drawLayout(layout, info.height, pos, textColor)
-    g_object_unref(layout)
-    this.clickables.add (start: pos, stop: pos + info.width, characters: info.characters)
+    this.clickables[region] = (start: pos, stop: pos + info.width, characters: info.characters)
 
 proc draw*(this: StatusBar, data: pointer) =
   ## Draws the whole bar into the pixel buffer.
@@ -400,7 +416,12 @@ proc draw*(this: StatusBar, data: pointer) =
     surface, pixelWidth.float / width.float, pixelHeight.float / height.float
   )
   this.cr = cairo_create(surface)
-  reset this.clickables
+  if this.layout == nil:
+    this.layout = pango_cairo_create_layout(this.cr)
+  else:
+    # Follows the new surface (and its device scale).
+    pango_cairo_update_layout(this.cr, this.layout)
+  this.clickables.setLen 0
   this.checkMetrics()
 
   # Background, including its transparency.
@@ -409,14 +430,12 @@ proc draw*(this: StatusBar, data: pointer) =
 
   let tagLengthPixels = this.renderTags()
   # The title needs to know where the status starts, but the click regions are
-  # ordered tags, title, status.
-  let tagRegions = this.clickables.len
+  # ordered tags, title, status: its slot is reserved here and filled last.
+  let titleRegion = this.clickables.len
+  this.clickables.add (start: 0, stop: 0, characters: @[])
   let trayLeft = this.renderTray()
   let statusLeft = this.renderStatus(trayLeft, tagLengthPixels)
-  let statusRegions = this.clickables[tagRegions .. ^1]
-  this.clickables.setLen tagRegions
-  this.renderActiveWindowTitle(tagLengthPixels, statusLeft - boxWidth * 2)
-  this.clickables.add statusRegions
+  this.renderActiveWindowTitle(titleRegion, tagLengthPixels, statusLeft - boxWidth * 2)
 
   cairo_destroy(this.cr)
   this.cr = nil

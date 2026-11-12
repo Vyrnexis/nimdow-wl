@@ -50,7 +50,7 @@ proc newStatusBar*(
   tagSettings: TagSettings
 ): StatusBar =
   result = StatusBar(
-    ctx: ctx, settings: settings, tagSettings: tagSettings,
+    ctx: ctx, settings: settings, tagLabels: tagLabels(tagSettings),
     metricsGen: -1, metricsScale: -1
   )
   result.wanted.trayVersion = -1
@@ -107,6 +107,8 @@ proc destroy*(this: StatusBar) =
   let index = this.ctx.bars.find(this)
   if index >= 0:
     this.ctx.bars.delete index
+  if this.layout != nil:
+    g_object_unref(this.layout)
   this.pool.destroy()
   river_node_v1_destroy(this.node)
   river_shell_surface_v1_destroy(this.shell)
@@ -115,7 +117,7 @@ proc destroy*(this: StatusBar) =
 
 proc setConfig*(this: StatusBar, settings: BarSettings, tagSettings: TagSettings) =
   this.settings = settings
-  this.tagSettings = tagSettings
+  this.tagLabels = tagLabels(tagSettings)
   this.fonts = this.ctx.fontSetFor(settings.fonts)
   inc this.configGen
 
@@ -129,10 +131,16 @@ proc fontSet*(this: StatusBar): FontSet =
 
 proc origin*(this: StatusBar): tuple[x, y: int] = (this.originX, this.originY)
 
-proc update*(this: StatusBar, tags: seq[BarTag], title: string, monitorSelected: bool) =
+proc update*(this: StatusBar, tags: openArray[BarTag], title: string, monitorSelected: bool) =
   ## Sets what the bar shows for tags and the focused window; drawn by `flush`.
-  this.wanted.tags = tags
-  this.wanted.title = title
+  ## Only writes what differs.
+  if this.wanted.tags.len != tags.len:
+    this.wanted.tags.setLen tags.len
+  for i, tag in tags:
+    if this.wanted.tags[i] != tag:
+      this.wanted.tags[i] = tag
+  if this.wanted.title != title:
+    this.wanted.title = title
   this.wanted.monitorSelected = monitorSelected
 
 proc setTray*(this: StatusBar, tray: Tray) =
@@ -161,7 +169,7 @@ proc setStatus*(this: StatusBar, status: string) =
 
 proc status*(this: StatusBar): string = this.wanted.status
 
-proc tagCount*(this: StatusBar): int = this.tagSettings.len
+proc tagCount*(this: StatusBar): int = this.tagLabels.len
 
 # ---------------------------------------------------------------------------
 # Committing

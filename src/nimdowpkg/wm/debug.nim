@@ -6,6 +6,7 @@ import
   area,
   ../bar/statusbar,
   ../tray/traymenu,
+  ../tray/tray,
   ../wl/protocols/[river_window_management_v1, river_xkb_bindings_v1, river_layer_shell_v1],
   ../sys/logger,
   listutils,
@@ -52,9 +53,11 @@ proc dumpState*(this: WindowManager, path: string) =
     var trayJson = newJArray()
     if monitor.statusBar != nil and monitor.isStatusBarEnabled:
       for region in monitor.statusBar.trayLayout():
+        let item = if this.tray != nil: this.tray.findItem(region.uid) else: nil
         trayJson.add %*{
           "uid": region.uid, "id": region.id, "status": $region.status,
-          "hasIcon": region.hasIcon, "icon": region.icon, "x": region.x, "width": region.width
+          "hasIcon": region.hasIcon, "icon": if item != nil: item.iconDesc else: "",
+          "x": region.x, "width": region.width
         }
     monitors.add %*{
       "id": monitor.id.int,

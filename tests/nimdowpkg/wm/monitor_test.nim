@@ -30,7 +30,7 @@ describe "Monitor tags":
     m.toggleTags(TagID(2))
     let c = newClient(nil)
     m.addClient(c)
-    assert c.tagIDs == [TagID(1), 2].toHashSet
+    assert c.tagIDs == {TagID(1), 2}
 
   it "adds a client without a crash when no tag is viewed":
     let m = newTestMonitor()

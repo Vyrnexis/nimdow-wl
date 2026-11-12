@@ -50,10 +50,10 @@ proc trayMonitor*(this: WindowManager): Monitor =
     return nil
   if this.config.trayMonitor <= 0:
     return this.selectedMonitor
-  let monitors = this.sortedMonitors()
-  if monitors.len == 0:
+  let count = this.sortedMonitors().len
+  if count == 0:
     return nil
-  return monitors[min(this.config.trayMonitor, monitors.len) - 1]
+  return this.sortedMonitors()[min(this.config.trayMonitor, count) - 1]
 
 proc startTray*(this: WindowManager) =
   ## Starts the StatusNotifier tray (needs the bar and the D-Bus session bus).

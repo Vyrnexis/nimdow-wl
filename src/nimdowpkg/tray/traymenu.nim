@@ -75,6 +75,9 @@ type
     rows: seq[Row]
     ## Index of the highlighted row, -1: none.
     selected: int
+    ## Row the pointer was last reported on (-1: none), to ignore the motion
+    ## that stays on it.
+    hoverRow: int
     ## Position on the screen and size, in logical pixels.
     x, y, width, height: int
     ## Incremented when the content or the layout changed.
@@ -220,6 +223,7 @@ proc computeLayout(popup: MenuPopup) =
   popup.height = y + padV + border
   if popup.selected >= popup.rows.len:
     popup.selected = -1
+  popup.hoverRow = -1
   inc popup.contentGen
 
 proc rowAt(popup: MenuPopup, x, y: int): int =
@@ -430,9 +434,11 @@ proc onMotion(popup: MenuPopup, x, y: int) =
     m = popup.mgr
     row = popup.rowAt(x, y)
     newSel = if row >= 0 and popup.rows[row].entry.selectable: row else: -1
+  if row == popup.hoverRow and newSel == popup.selected:
+    return
+  popup.hoverRow = row
   if row >= 0 or popup.selected != -1:
-    if newSel != popup.selected:
-      popup.selected = newSel
+    popup.selected = newSel
     m.inputs.add MenuInput(kind: miHover, popup: popup, row: row)
     m.requestManage()
 
@@ -440,7 +446,8 @@ proc newPopup(m: MenuManager, level, parentId: int, entries: seq[MenuEntry],
     tip: seq[string] = @[]): MenuPopup =
   let ctx = m.ctx
   result = MenuPopup(
-    mgr: m, level: level, parentId: parentId, entries: entries, selected: -1, tip: tip
+    mgr: m, level: level, parentId: parentId, entries: entries, selected: -1,
+    hoverRow: -1, tip: tip
   )
   GC_ref result
   let popup = result
@@ -478,6 +485,7 @@ proc newPopup(m: MenuManager, level, parentId: int, entries: seq[MenuEntry],
     leave: proc() =
       # The highlight stays on the entry that has its submenu open.
       let m = popup.mgr
+      popup.hoverRow = -1
       m.inputs.add MenuInput(kind: miHover, popup: popup, row: -1)
       m.requestManage()
       let idx = m.popups.find(popup)

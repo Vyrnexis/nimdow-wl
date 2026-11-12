@@ -78,6 +78,11 @@ proc fireTimers*(this: WindowManager) =
 # Manage / render sequences
 # ---------------------------------------------------------------------------
 
+proc currentClient(this: WindowManager): Client =
+  ## The client of the selected monitor that should have the keyboard focus.
+  if this.selectedMonitor != nil:
+    result = this.selectedMonitor.taggedClients.currClient
+
 proc flushVisibility(client: Client) =
   if client.isVisible != client.sentVisible:
     if client.isVisible:
@@ -149,15 +154,14 @@ proc applyManageState(this: WindowManager) =
     client.isNew = false
 
   # Keyboard focus follows the selected client of the selected monitor.
-  var focusTarget: Client
-  if this.selectedMonitor != nil:
-    focusTarget = this.selectedMonitor.taggedClients.currClient
+  let
+    focusTarget = this.currentClient()
+    menuShell = if this.menu != nil: this.menu.keyboardShell() else: nil
   for seat in this.seats:
     if seat.layerFocus == lfExclusive:
       # A layer surface holds the keyboard; River ignores focus requests until
       # focus_none, after which the window is focused again.
       continue
-    let menuShell = if this.menu != nil: this.menu.keyboardShell() else: nil
     if menuShell != nil:
       # The tray menu takes the keyboard while it is open.
       if seat.focusedShell != menuShell:
@@ -304,31 +308,36 @@ proc colorChannel(value: int, shift: int): uint32 =
   ## 8-bit channel to the 32-bit range used by River.
   uint32((value shr shift) and 0xff) * 0x01010101'u32
 
-proc centerOnMonitor(client: Client, monitor: Monitor) =
+proc centerOnMonitor(client: Client, monitor: Monitor): bool =
   ## Centers a floating client whose size is known (the size it was given, or
-  ## what the window chose) in the monitor's usable area.
+  ## what the window chose) in the monitor's usable area. Returns if the client
+  ## had to be shrunk, which needs a manage sequence to propose the new size.
   if client.width == 0: client.width = max(client.reportedWidth, 0).uint
   if client.height == 0: client.height = max(client.reportedHeight, 0).uint
   if client.width == 0 or client.height == 0:
-    return
+    return false
   let area = monitor.usableArea()
   # Larger than the usable area: use the floating percentages instead.
   let settings = monitor.windowSettings
   if client.totalWidth > area.width.int:
     client.width = percentArea(
       area, settings.floatingWidth, settings.floatingHeight, client.borderWidth).width
+    result = true
   if client.totalHeight > area.height.int:
     client.height = percentArea(
       area, settings.floatingWidth, settings.floatingHeight, client.borderWidth).height
+    result = true
   client.x = (area.x.float + (area.width.float - client.totalWidth.float) / 2).int
   client.y = (area.y.float + (area.height.float - client.totalHeight.float) / 2).int
   client.needsCenter = false
 
+var
+  ## Scratch space of `applyRenderState`'s stacking (kept for its capacity).
+  stack, floating, fullscreen: seq[RiverNodeV1]
+
 proc applyRenderState(this: WindowManager) =
   ## Sends rendering state (position, borders, stacking) to River.
-  var focusedClient: Client
-  if this.selectedMonitor != nil:
-    focusedClient = this.selectedMonitor.taggedClients.currClient
+  var focusedClient = this.currentClient()
   # No window is focused while a layer surface (launcher, ...) holds the keyboard.
   for seat in this.seats:
     if seat.layerFocus == lfExclusive:
@@ -351,7 +360,8 @@ proc applyRenderState(this: WindowManager) =
       if not client.isVisible:
         continue
       if client.needsCenter and client.isFloating:
-        client.centerOnMonitor(monitor)
+        if client.centerOnMonitor(monitor):
+          this.markDirty()
       let color =
         if client.isUrgent: settings.borderColorUrgent
         elif client == focusedClient: settings.borderColorFocused
@@ -387,18 +397,18 @@ proc applyRenderState(this: WindowManager) =
     # first), status bar, fullscreen. River does not render shell surfaces
     # below the top fullscreen window, so the bar hides while one is shown.
     # Only sent when the order changed.
-    var stack: seq[RiverNodeV1]
+    stack.setLen 0
+    floating.setLen 0
+    fullscreen.setLen 0
     for client in monitor.clientSelection:
-      if client.isVisible and not client.isFloating and not client.isFullscreen:
-        stack.add client.node
-    for client in monitor.clientSelection:
-      if client.isVisible and client.isFloating and not client.isFullscreen:
-        stack.add client.node
+      if client.isVisible:
+        if client.isFullscreen: fullscreen.add client.node
+        elif client.isFloating: floating.add client.node
+        else: stack.add client.node
+    stack.add floating
     if monitor.statusBar != nil:
       stack.add monitor.statusBar.node
-    for client in monitor.clientSelection:
-      if client.isVisible and client.isFullscreen:
-        stack.add client.node
+    stack.add fullscreen
     if stack != monitor.sentStack:
       for node in stack:
         river_node_v1_place_top(node)

@@ -3,7 +3,6 @@ import
   strutils,
   tables,
   listutils,
-  sequtils,
   sugar
 
 import
@@ -41,8 +40,6 @@ type
     layoutDirty*: bool
     ## The stacking order last sent to River (bottom to top).
     sentStack*: seq[RiverNodeV1]
-    ## What `syncStatusBar` last handed to the bar.
-    sentBar: tuple[valid: bool, tags: seq[BarTag], title: string, selected: bool]
 
 proc doLayout*(this: Monitor)
 proc updateMonitor*(this: Monitor)
@@ -175,20 +172,18 @@ proc syncStatusBar*(this: Monitor, isSelected: bool) =
       perTag[tagID].urgent = perTag[tagID].urgent or client.isUrgent
       if client == currClient:
         perTag[tagID].hasCurrent = true
-  var tagStates: seq[BarTag]
+  var
+    tagStates: array[TagID.high, BarTag]
+    count = 0
   for tagID in this.monitorSettings.tagSettings.keys():
-    var state = perTag[tagID]
-    state.selected = this.selectedTags.contains(tagID)
-    tagStates.add state
-  let title = if currClient != nil: currClient.title else: ""
-  if this.sentBar.valid and this.sentBar.tags == tagStates and
-     this.sentBar.title == title and this.sentBar.selected == isSelected:
-    return
-  this.sentBar = (true, tagStates, title, isSelected)
-  this.statusBar.update(tagStates, title, isSelected)
+    tagStates[count] = perTag[tagID]
+    tagStates[count].selected = tagID in this.selectedTags
+    inc count
+  const noTitle = ""
+  let title {.cursor.} = if currClient != nil: currClient.title else: noTitle
+  this.statusBar.update(tagStates.toOpenArray(0, count - 1), title, isSelected)
 
 proc setConfig*(this: Monitor, config: Config) =
-  this.sentBar.valid = false
   this.windowSettings = config.windowSettings
   if config.monitorSettings.hasKey(this.id):
     this.monitorSettings = config.monitorSettings[this.id]
@@ -223,12 +218,15 @@ proc setSelectedClient*(this: Monitor, client: Client) =
   if client != nil:
     if client.isUrgent:
       client.setUrgent(false)
-    # The topmost fullscreen client depends on the selection order.
-    this.layoutDirty = true
-
     if client.monitorID != this.id:
       log "Attempted to select a client not on the current tags"
       return
+
+    # The topmost fullscreen client depends on the selection order.
+    for other in this.clients.items:
+      if other.isFullscreen:
+        this.layoutDirty = true
+        break
 
     this.taggedClients.selectClient(client.window)
 
@@ -268,14 +266,15 @@ proc doLayout*(this: Monitor) =
 
   for client in this.clients.mitems:
     client.isVisible =
-      client.tagIDs.anyIt(this.selectedTags.contains(it)) and
+      this.taggedClients.isOnSelectedTags(client) and
       (topmostFullscreen == nil or client == topmostFullscreen)
 
 proc removeWindow*(this: Monitor, window: Window): bool =
   ## Returns if the window was removed.
   ## After a window is removed, you should typically call doLayout.
-  this.sentStack.setLen 0
-  return this.taggedClients.removeByWindow(window)
+  result = this.taggedClients.removeByWindow(window)
+  if result:
+    this.sentStack.setLen 0
 
 proc toggleTagsForClient*(
   this: Monitor,
@@ -283,7 +282,7 @@ proc toggleTagsForClient*(
   tagIDs: varargs[TagID]
 ) =
   # Cache if the client was on the current tags.
-  let wasOnCurrTags = client.tagIDs.anyIt(this.selectedTags.contains(it))
+  let wasOnCurrTags = this.taggedClients.isOnSelectedTags(client)
 
   var firstTagToggledOff: int = 0
   for id in tagIDs:
@@ -299,7 +298,7 @@ proc toggleTagsForClient*(
     client.tagIDs.incl(firstTagToggledOff.TagID)
 
   # Perform the layout if the client was added to or removed from the current tags.
-  if wasOnCurrTags != client.tagIDs.anyIt(this.selectedTags.contains(it)):
+  if wasOnCurrTags != this.taggedClients.isOnSelectedTags(client):
     this.doLayout()
 
 proc addClient*(this: Monitor, client: Client, assignToSelectedTags: bool = true) =
@@ -308,7 +307,7 @@ proc addClient*(this: Monitor, client: Client, assignToSelectedTags: bool = true
   this.clients.append(client)
   this.clientSelection.add(client)
   if assignToSelectedTags:
-    client.tagIDs.clear()
+    client.tagIDs = {}
     for id in this.selectedTags:
       client.tagIDs.incl(id)
     # Nothing viewed: fall back to the previous tag, else the first.
@@ -327,12 +326,11 @@ proc rotateClients*(this: Monitor) =
     this.doLayout()
 
 proc moveClientToTag*(this: Monitor, client: Client, destinationTagID: TagID) =
-  if client.tagIDs.len == 1 and destinationTagID in client.tagIDs:
+  if client.tagIDs == {destinationTagID}:
     return
 
   # Change client tags to only destinationTag id.
-  client.tagIDs.clear()
-  client.tagIDs.incl(destinationTagID)
+  client.tagIDs = {destinationTagID}
 
   this.doLayout()
 

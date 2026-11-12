@@ -1,5 +1,5 @@
 import
-  std/[options, tables, sets, math, sequtils],
+  std/[options, tables, sets, math],
   parsetoml,
   types,
   outputs,
@@ -108,17 +108,14 @@ proc focusMonitor(this: WindowManager, monitor: Monitor) =
 
 proc focusMonitorIndex(this: WindowManager, index: int) =
   ## `index` is zero-based, in position order.
-  let monitors = this.sortedMonitors()
-  if index in 0 .. monitors.high:
-    this.focusMonitor(monitors[index])
+  if index in 0 .. this.sortedMonitors().high:
+    this.focusMonitor(this.sortedMonitors()[index])
 
 proc focusNextMonitor(this: WindowManager) =
-  let monitors = this.sortedMonitors()
-  this.focusMonitorIndex(monitors.findNext(this.selectedMonitor))
+  this.focusMonitorIndex(this.sortedMonitors().findNext(this.selectedMonitor))
 
 proc focusPreviousMonitor(this: WindowManager) =
-  let monitors = this.sortedMonitors()
-  this.focusMonitorIndex(monitors.findPrevious(this.selectedMonitor))
+  this.focusMonitorIndex(this.sortedMonitors().findPrevious(this.selectedMonitor))
 
 proc moveClientToMonitor*(
   this: WindowManager,
@@ -153,22 +150,20 @@ proc moveSelectedClientToMonitor(this: WindowManager, destination: Monitor) =
     this.moveClientToMonitor(client, destination)
 
 proc moveWindowToNextMonitor(this: WindowManager) =
-  let monitors = this.sortedMonitors()
-  let i = monitors.findNext(this.selectedMonitor)
+  let i = this.sortedMonitors().findNext(this.selectedMonitor)
   if i >= 0:
-    this.moveSelectedClientToMonitor(monitors[i])
+    this.moveSelectedClientToMonitor(this.sortedMonitors()[i])
 
 proc moveWindowToPreviousMonitor(this: WindowManager) =
-  let monitors = this.sortedMonitors()
-  let i = monitors.findPrevious(this.selectedMonitor)
+  let i = this.sortedMonitors().findPrevious(this.selectedMonitor)
   if i >= 0:
-    this.moveSelectedClientToMonitor(monitors[i])
+    this.moveSelectedClientToMonitor(this.sortedMonitors()[i])
 
 proc moveWindowToScratchpad(this: WindowManager) =
   let client = this.selectedMonitor.taggedClients.currClient
   if client == nil:
     return
-  client.tagIDs.clear()
+  client.tagIDs = {}
   discard this.selectedMonitor.removeWindow(client.window)
   this.selectedMonitor.doLayout()
   client.isVisible = false
@@ -214,8 +209,8 @@ proc jumpToUrgentWindow(this: WindowManager) =
   ## is the hook for when it does); this is then a no-op.
   for monitor in this.sortedMonitors():
     for client in monitor.clientSelection:
-      if client.isUrgent and client.tagIDs.len > 0:
-        if not client.tagIDs.anyIt(monitor.selectedTags.contains(it)):
+      if client.isUrgent and client.tagIDs != {}:
+        if not monitor.taggedClients.isOnSelectedTags(client):
           for id in monitor.selectedTags:
             monitor.previousTagID = id
             break

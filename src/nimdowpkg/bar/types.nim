@@ -2,7 +2,6 @@ import
   std/[tables, math],
   ../wm/area,
   ../config/configloader,
-  ../config/tagsettings,
   ../wl/client as wlclient,
   ../wl/cairo,
   ../wl/cursor,
@@ -83,7 +82,8 @@ type
     shell*: RiverShellSurfaceV1
     node*: RiverNodeV1
     settings*: BarSettings
-    tagSettings*: TagSettings
+    ## The (sanitized) tag texts, in drawing order.
+    tagLabels*: seq[string]
     ## What should be shown, and what is shown right now.
     wanted*, drawn*: BarState
     configGen*: int
@@ -94,7 +94,15 @@ type
     ## Text measurements are valid for this config generation and scale.
     metricsGen*, metricsScale*: int
     tagInfos*: seq[TextInfo]
+    ## The measurement of the title as drawn last, for `titleText` ellipsized
+    ## to `titleWidth` (-1: not ellipsized).
+    titleInfo*: TextInfo
+    titleText*: string
+    titleWidth*: int
     blockMetrics*: BlockMetrics
+    ## The one layout all text is laid out with, kept for the bar's lifetime
+    ## (nil until the first draw).
+    layout*: PangoLayout
     # Drawing context, only valid while drawing.
     cr*: Cairo
     clickables*: seq[tuple[start: int, stop: int, characters: seq[int]]]
@@ -109,8 +117,6 @@ type
     id*: string
     status*: ItemStatus
     hasIcon*: bool
-    ## Where the icon came from (file path or pixmap summary).
-    icon*: string
     ## Logical x of the icon in the bar, and its width (= height).
     x*, width*: int
 

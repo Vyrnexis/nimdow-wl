@@ -78,7 +78,8 @@ type
     attempts: int
     # Rendered icon cache.
     cache: CairoSurface
-    cacheKey: string
+    ## `px * 2 + attention` of the cached icon (0: none).
+    cacheKey: int
     cacheReal: bool
     cacheDesc: string
 
@@ -253,7 +254,7 @@ proc freeCache(item: TrayItem) =
   if item.cache != nil:
     cairo_surface_destroy(item.cache)
     item.cache = nil
-  item.cacheKey = ""
+  item.cacheKey = 0
 
 # ---------------------------------------------------------------------------
 # Own watcher: signals and properties
@@ -861,14 +862,18 @@ proc visibleItems*(t: Tray): seq[TrayItem] =
     if item.loaded and item.status != isPassive:
       result.add item
 
-proc iconSurface*(item: TrayItem, px: int): tuple[surface: CairoSurface, real: bool, desc: string] =
+proc iconDesc*(item: TrayItem): string =
+  ## Where the cached icon came from (file path or pixmap summary), for dumps.
+  item.cacheDesc
+
+proc iconSurface*(item: TrayItem, px: int): tuple[surface: CairoSurface, real: bool] =
   ## The item's icon as a px*px surface (owned by the item; nil, real=false
   ## when there is none: the caller draws a placeholder).
   let attention = item.status == isNeedsAttention and
     (item.attentionIconName.len > 0 or item.attentionPixmaps.len > 0)
-  let key = $px & "|" & $attention
+  let key = px * 2 + attention.int
   if item.cacheKey == key:
-    return (item.cache, item.cacheReal, item.cacheDesc)
+    return (item.cache, item.cacheReal)
   item.freeCache()
   let
     name = if attention: item.attentionIconName else: item.iconName
@@ -894,7 +899,7 @@ proc iconSurface*(item: TrayItem, px: int): tuple[surface: CairoSurface, real: b
   item.cacheKey = key
   item.cacheReal = surface != nil
   item.cacheDesc = desc
-  return (item.cache, item.cacheReal, item.cacheDesc)
+  return (item.cache, item.cacheReal)
 
 proc itemIface(item: TrayItem): string =
   if item.iface.len > 0: item.iface else: ItemInterfaces[0]

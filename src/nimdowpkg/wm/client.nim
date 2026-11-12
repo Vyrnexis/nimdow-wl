@@ -1,5 +1,4 @@
 import
-  sets,
   std/monotimes
 
 import
@@ -24,7 +23,7 @@ type
     node*: RiverNodeV1
     ## The monitor whose client list holds this client (0: none).
     monitorID*: int
-    tagIDs*: HashSet[TagID]
+    tagIDs*: set[TagID]
     # Desired state. Event handlers and actions only change these fields;
     # they are flushed to River during the next manage/render sequence.
     area*: Area
@@ -91,14 +90,15 @@ type
     reportedWidth*, reportedHeight*: int
 
 proc newClient*(window: Window, tagIDs: varargs[TagID]): Client =
-  Client(
+  result = Client(
     window: window,
-    tagIDs: tagIDs.toHashSet(),
     isNew: true,
     sentVisible: true, # River considers new windows shown.
     sentWidth: -1,
     sentHeight: -1
   )
+  for id in tagIDs:
+    result.tagIDs.incl id
 
 # Area helper procs
 proc x*(this: Client): int = this.area.x

@@ -1,5 +1,5 @@
 import
-  std/[times, tables, sets, math],
+  std/[times, tables, math],
   parsetoml,
   types,
   clientlist,
@@ -107,9 +107,9 @@ proc endSeatOp*(seat: Seat) =
   seat.opRelease = false
 
 proc destroyClient*(this: WindowManager, client: Client) =
-  for monitor in this.monitors.values():
-    if monitor.removeWindow(client.window):
-      monitor.doLayout()
+  let monitor = this.monitorOf(client)
+  if monitor != nil and monitor.removeWindow(client.window):
+    monitor.doLayout()
   this.unassigned.dropAt client
   this.scratchpad.dropAt client
   if this.warpClient == client: this.warpClient = nil
@@ -202,7 +202,7 @@ proc applyLateRules*(this: WindowManager, client: Client, monitor: Monitor) =
   client.ruleApplied = true
   log "Applied app rule to \"" & client.appId & "\" after its title arrived: " & client.title
   if rule.tagIDs.len > 0:
-    client.tagIDs.clear()
+    client.tagIDs = {}
     for tagID in rule.tagIDs:
       client.tagIDs.incl tagID
   case rule.state
@@ -223,11 +223,9 @@ proc assignUnassigned*(this: WindowManager) =
   ##
   ## A new client is held back for one manage sequence while its app_id (or its
   ## title, if any rule matches on titles) is still unknown, so rules see them.
-  if this.selectedMonitor == nil:
+  if this.selectedMonitor == nil or this.unassigned.len == 0:
     return
-  let
-    monitors = this.sortedMonitors()
-    titleRules = this.hasTitleRules()
+  let titleRules = this.hasTitleRules()
   var waiting: seq[Client]
   for client in this.unassigned:
     var
@@ -244,13 +242,13 @@ proc assignUnassigned*(this: WindowManager) =
       client.ruleApplied = rule != nil
       client.placedAt = getMonoTime()
       client.borderWidth = this.config.windowSettings.borderWidth
-      if rule != nil and rule.monitorID in 1 .. monitors.len:
-        monitor = monitors[rule.monitorID - 1]
+      if rule != nil and rule.monitorID in 1 .. this.sortedMonitors().len:
+        monitor = this.sortedMonitors()[rule.monitorID - 1]
       client.area = (monitor.area.x, monitor.area.y, 0.uint, 0.uint)
 
       if rule != nil:
         if rule.tagIDs.len > 0:
-          client.tagIDs.clear()
+          client.tagIDs = {}
           for tagID in rule.tagIDs:
             client.tagIDs.incl tagID
         case rule.state
@@ -267,8 +265,8 @@ proc assignUnassigned*(this: WindowManager) =
       if client.isFloating:
         client.centerIfAtOrigin(monitor)
       if client.isFullscreen:
+        # Relaid out (the other windows hidden) by `applyManageState`.
         monitor.setSelectedClient(client)
-        monitor.doLayout()
     else:
       monitor.addClient(client)
   this.unassigned = waiting

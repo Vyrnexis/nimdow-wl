@@ -8,6 +8,8 @@ import
 
 proc sanitize*(s: string): string =
   ## Replaces invalid UTF-8 and line breaks, which pango does not like.
+  if validateUtf8(s) == -1 and s.find({'\n', '\r', '\t'}) < 0:
+    return s
   result = newStringOfCap(s.len)
   var i = 0
   while i < s.len:

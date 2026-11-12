@@ -23,6 +23,7 @@ const
   CAIRO_OPERATOR_SOURCE* = 1.cint
   CAIRO_OPERATOR_OVER* = 2.cint
   PANGO_SCALE* = 1024
+  PANGO_ELLIPSIZE_NONE* = 0.cint
   PANGO_ELLIPSIZE_END* = 3.cint
 
 # --- cairo ---
@@ -67,6 +68,7 @@ proc cairo_set_line_width*(cr: Cairo, width: cdouble) {.importc, cdecl.}
 # --- pango ---
 
 proc pango_cairo_create_layout*(cr: Cairo): PangoLayout {.importc, cdecl.}
+proc pango_cairo_update_layout*(cr: Cairo, layout: PangoLayout) {.importc, cdecl.}
 proc pango_cairo_show_layout*(cr: Cairo, layout: PangoLayout) {.importc, cdecl.}
 proc pango_layout_set_text*(l: PangoLayout, text: cstring, length: cint) {.importc, cdecl.}
 proc pango_layout_set_font_description*(l: PangoLayout,
